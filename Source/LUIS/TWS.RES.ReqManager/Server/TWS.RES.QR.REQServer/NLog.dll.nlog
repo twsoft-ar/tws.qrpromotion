@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+
+  <nlog xmlns="http://www.nlog-project.org/schemas/NLog.xsd" 
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+        xsi:schemaLocation="http://www.nlog-project.org/schemas/NLog.xsd NLog.xsd" 
+        autoReload="true" 
+        throwExceptions="true" 
+        throwConfigExceptions="false" 
+        internalLogLevel="Warn" 
+        internalLogFile="${basedir}Logs\nlog-internal.log">
+    <targets>
+      <target
+				name="assemblyLogfile"
+				xsi:type="File"
+				fileName="${basedir}Logs\${logger}.log"
+				createDirs="true"
+				archiveFileName="${basedir}Logs\Archive\${logger}.{#}.log"
+				archiveEvery="Day"
+				archiveNumbering="DateAndSequence"
+				archiveDateFormat="yyyy-MM-dd HH mm ss"
+				archiveAboveSize="1048576"
+			layout="${longdate}|${level:uppercase=true}|${logger}|${processid}|${threadid}|${callsite}|${message}${onexception:${newline}---------------------------------- EXCEPTION -----------------------------------${newline}Exception Type   \: ${exception:format=Type}${newline}Exception Message\: ${exception:format=Message}${newline}Stack Trace      \: ${exception:format=StackTrace}${newline}}" />
+
+      <target
+				name="globalLogfile"
+				xsi:type="File"
+				fileName="${basedir}Logs\global.log"
+				createDirs="true"
+				archiveFileName="${basedir}Logs\Archive\bp.ei.{#}.log"
+				archiveEvery="Day"
+				archiveNumbering="DateAndSequence"
+				archiveDateFormat="yyyy-MM-dd HH mm ss"
+				archiveAboveSize="1048576"
+				layout="${longdate}|${level:uppercase=true}|${logger}|${processid}|${threadid}|${callsite}|${message}${onexception:${newline}---------------------------------- EXCEPTION -----------------------------------${newline}Exception Type   \: ${exception:format=Type}${newline}Exception Message\: ${exception:format=Message}${newline}Stack Trace      \: ${exception:format=StackTrace}${newline}}" />
+
+      <target
+				name="logconsole"
+			xsi:type="Console" />
+    </targets>
+
+    <rules>
+      <logger name="*" minlevel="Info" writeTo="logconsole" />
+      <logger name="*" minlevel="Info" writeTo="globalLogfile" />
+      <logger name="*" minlevel="Info" writeTo="assemblyLogfile" />
+    </rules>
+  </nlog>
