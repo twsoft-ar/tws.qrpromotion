@@ -153,8 +153,11 @@ namespace TWS.RES.REQServer
 
                 //var reqInstance = new RESGeoITDReqInstance(e.Socket);
 
-                foreach(var reqInstance in reqInstanceList)    
+                foreach(var reqInstance in reqInstanceList)
+                {
+                    reqInstance.StartProcess(e.Socket);
                     new Thread(reqInstance.StartProcess).Start();
+                }
             }
             catch (Exception ex)
             {

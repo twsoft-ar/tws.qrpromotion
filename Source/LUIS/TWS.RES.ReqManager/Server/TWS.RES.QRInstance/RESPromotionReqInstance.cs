@@ -12,7 +12,7 @@ namespace TWS.RES.QR
     public class RESPromotionReqInstance : ReqInstance
     {
         private static readonly NLog.Logger LOG = NLog.LogManager.GetCurrentClassLogger();
-        enum QR_MSG { VALIDATE = 1, REDEEM = 2 };
+        enum QRPROMOTION_MSG { VALIDATE = 1, REDEEM = 2 };
 
         public RESPromotionReqInstance(Socket socket_) : base(socket_)
         {
@@ -28,11 +28,11 @@ namespace TWS.RES.QR
 
             switch (msg_.MessageType)
             {
-                case (int)QR_MSG.VALIDATE:
+                case (int)QRPROMOTION_MSG.VALIDATE:
                     retVal = ProcessQRValidate(msg_);
                     break;
 
-                case (int)QR_MSG.REDEEM:
+                case (int)QRPROMOTION_MSG.REDEEM:
                     retVal = ProcessQRRedeem(msg_);
                     break;
 
@@ -49,34 +49,56 @@ namespace TWS.RES.QR
             LOG.Trace("ENTER");
 
             ReqMessage retVal = new ReqMessage(null);
+            string strAux = "";
 
             try
             {
                 string qrCode = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString();
 
-
                 LOG.Info("{Message}", $"Before calling ProcessQRValidate(), REQUEST:\r\nQR CODE = {qrCode}");
 
                 QRVoucherClientProxy client = new QRVoucherClientProxy();
-                var response = client.ValidateVoucher(qrCode);
+                ResponseMessage response = client.ValidateVoucher(qrCode);
 
-                string strAux = $"response_code={response.Status}|{response.Message ?? ""}";
-
-                retVal.MessageType = reqMsg_.MessageType;
-                retVal.Body = ByteStream.ToPByte(strAux);
-                retVal.BodySize = retVal.Body.Length;
-                retVal.Checksum = retVal.GenerateChecksum();
-
-                LOG.Info("{Message}", $"After calling Purchase(), RESPONSE:\r\nSTATUS={response.Status}, MSG={response.Message??"null"}");
+                strAux = $"{(int)response.Status}|{response.Message}";
+                if (response.Status == StatusCode.FAIL)
+                {
+                    strAux = $"{((int)response.Status)}|Fallo al validar QR"; //web client execution fail
+                    LOG.Error("{Message}", $"Failed to validate qr code");
+                }
+                else if (response.Status == StatusCode.WS_ENDPOINT_ERROR)
+                {
+                    strAux = $"{(int)response.Status}|Sin conexion con Servicio QR"; //web client execution fail
+                    LOG.Error("{Message}", $"No connection to QR WS EndPoint");
+                }
+                /*else if (response.Status == StatusCode.NOT_FOUND)
+                {
+                    strAux = $"{(int)response.Status}|QR No encontrado";
+                    LOG.Error("{Message}", $"{strAux}");
+                }*/
+                else if (response.Status == StatusCode.OK)
+                {
+                    foreach (var item in response.Items)
+                    {
+                        strAux += $"|{((int)item.Type)}|{item.ObjectNumber}|{item.Quantity}";
+                    }
+                }
+                LOG.Info("{Message}", $"After calling ValidateVoucher(), RESPONSE:\r\nSTATUS={response.Status}, MSG={response.Message??"null"}");
             }
             catch (Exception ex)
             {
+                strAux = $"{StatusCode.FAIL}|Exception caught"; //web client execution fail
                 LOG.Fatal(ex, "{Message}", "Exception caught.");
             }
             finally
             {
                 LOG.Trace("EXIT");
             }
+
+            retVal.MessageType = reqMsg_.MessageType;
+            retVal.Body = ByteStream.ToPByte(strAux);
+            retVal.BodySize = retVal.Body.Length;
+            retVal.Checksum = retVal.GenerateChecksum();
 
             return retVal;
         }
@@ -86,30 +108,44 @@ namespace TWS.RES.QR
             LOG.Trace("ENTER");
 
             ReqMessage retVal = new ReqMessage(null);
+            string strAux = "";
 
             try
             {
-                string bodyString = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString();
-                string[] bodyFiedsStr = bodyString.Split('|');
-                string qrCode = bodyFiedsStr.Length > 0 ? bodyFiedsStr[0]: "";
-                string reference = bodyFiedsStr.Length > 1 ? bodyFiedsStr[1]: "";
+                string bodyStr = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString();
+                var bodyFields = bodyStr.Split('|');
 
-                LOG.Info("{Message}", $"Before calling ProcessQRRedeem(), REQUEST:\r\n{bodyString}");
+                if (bodyFields.Length < 2)
+                {
+                    strAux = $"{StatusCode.FAIL}|Bad parameters";
+                    //strAux = $"{-3}"; //bad parameters
+                }
+                else
+                {
+                    string qrCode = bodyFields[0].Trim();
+                    string reference = bodyFields[1].Trim();
 
-                QRVoucherClientProxy client = new QRVoucherClientProxy();
-                var response = client.RedeemVoucher(qrCode, reference);
+                    LOG.Info("{Message}", $"Before calling ProcessQRRedeem(), REQUEST:\r\nQR CODE = {qrCode}");
 
-                string strAux = $"response_code={response.Status}|{response.Message ?? ""}";
+                    QRVoucherClientProxy client = new QRVoucherClientProxy();
+                    ResponseMessage response = client.RedeemVoucher(qrCode, reference);
 
-                retVal.MessageType = reqMsg_.MessageType;
-                retVal.Body = ByteStream.ToPByte(strAux);
-                retVal.BodySize = retVal.Body.Length;
-                retVal.Checksum = retVal.GenerateChecksum();
+                    strAux = $"{response.Status}|{response.Message}";
+                    if (response.Status != StatusCode.OK)
+                    {
+                        LOG.Error("{Message}", $"Failed to validate qr code. {response.Message}");
+                    }
+                    else
+                    {
+                        strAux += $"|{response.Detail.Status}|{response.Detail.Id}|{response.Voucher.Id}";
+                    }
 
-                LOG.Info("{Message}", $"After calling Purchase(), RESPONSE:\r\nSTATUS={response.Status}, MSG={response.Message ?? "null"}");
+                    LOG.Info("{Message}", $"After calling ValidateVoucher(), RESPONSE:\r\nSTATUS={response.Status}, MSG={response.Message ?? "null"}");
+                }
             }
             catch (Exception ex)
             {
+                strAux = $"{StatusCode.FAIL}"; //exception
                 LOG.Fatal(ex, "{Message}", "Exception caught.");
             }
             finally
@@ -117,13 +153,12 @@ namespace TWS.RES.QR
                 LOG.Trace("EXIT");
             }
 
+            retVal.MessageType = reqMsg_.MessageType;
+            retVal.Body = ByteStream.ToPByte(strAux);
+            retVal.BodySize = retVal.Body.Length;
+            retVal.Checksum = retVal.GenerateChecksum();
+
             return retVal;
         }
-    }
-
-    public class SaleId
-    {
-        public string collector_id { get; set; }
-        public string pos_id { get; set; }
     }
 }

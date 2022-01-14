@@ -2,8 +2,8 @@
 <SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="TWS.QR.Properties" GeneratedClassName="Settings">
   <Profiles />
   <Settings>
-    <Setting Name="Q_PROMOTION_URL" Type="System.String" Scope="Application">
-      <Value Profile="(Default)">http://localhost:52978/api/</Value>
+    <Setting Name="QR_PROMOTION_URL" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">http://MSI:52978/api/</Value>
     </Setting>
   </Settings>
 </SettingsFile>

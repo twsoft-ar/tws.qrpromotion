@@ -25,10 +25,10 @@ namespace TWS.QR.Properties {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("http://localhost:52978/api/")]
-        public string Q_PROMOTION_URL {
+        [global::System.Configuration.DefaultSettingValueAttribute("http://MSI:52978/api/")]
+        public string QR_PROMOTION_URL {
             get {
-                return ((string)(this["Q_PROMOTION_URL"]));
+                return ((string)(this["QR_PROMOTION_URL"]));
             }
         }
     }

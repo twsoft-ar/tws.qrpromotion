@@ -6,7 +6,7 @@
 #include "ByteStream.h"
 #include "string.h" 
 
-#define RES_OK				(1)
+#define RES_OK				(0)
 #define INVALID_MSG			(-1)
 
 #define EXECUTION_ERROR		(-100)

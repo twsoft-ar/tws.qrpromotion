@@ -45,7 +45,7 @@ namespace TWS.QR.PromotionClient.Interface
     public class ResponseMessage
     {
         [DataMember(Name = "status", IsRequired = false)]
-        public ErrorCode Status { get; set; }
+        public StatusCode Status { get; set; }
         
         [DataMember(Name = "message", IsRequired = false)]
         public string Message { get; set; }
@@ -82,7 +82,7 @@ namespace TWS.QR.PromotionClient.Interface
         public object Picture { get; set; }
 
         [DataMember(Name = "cantidad", IsRequired = false)]
-        public int Quantity { get; set; }
+        public int? Quantity { get; set; }
         
         [DataMember(Name = "qrCode")]
         public string QRCode { get; set; }
@@ -147,8 +147,18 @@ namespace TWS.QR.PromotionClient.Interface
         Discount = 2,
     }
 
-    public enum ErrorCode
-    { 
+    public enum StatusCode
+    {
+        OK = 0,
+        NOT_FOUND = 1,
+        WS_ENDPOINT_ERROR = -2,
+        FAIL = -1,
+
+        /*
+        WS_ENDPOINT_ERROR = -2,
+        FAIL = -1,
+        NOT_FOUND = 0,
         OK = 1,
+        */
     }
 }

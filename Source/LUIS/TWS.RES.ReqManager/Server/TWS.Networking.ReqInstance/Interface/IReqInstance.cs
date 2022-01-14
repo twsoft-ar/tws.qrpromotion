@@ -4,6 +4,7 @@ namespace TWS.Networking
 {
     public interface IReqInstance
     {
-        void StartProcess();    
+        void StartProcess();
+        void StartProcess(Socket socket_);
     }
 }

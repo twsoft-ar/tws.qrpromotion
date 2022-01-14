@@ -37,8 +37,15 @@ namespace TWS.QR.PromotionClient
             {
                 retVal = mQRVoucherService.ValidateVoucher(new RequestMessage() { VoucherCode = qrcode_ });
             }
+            catch (EndpointNotFoundException ex)
+            {
+                retVal.Status = StatusCode.WS_ENDPOINT_ERROR;
+                retVal.Message = ex.Message + "|" + ex.StackTrace;
+                LOG.Fatal(ex, "{Message}", $"{ex.Message}");
+            }
             catch (Exception ex)
             {
+                retVal.Status = StatusCode.FAIL;
                 retVal.Message = ex.Message + "|" + ex.StackTrace;
                 LOG.Fatal(ex, "{Message}", "Exception caught.");
             }
@@ -81,7 +88,7 @@ namespace TWS.QR.PromotionClient
 
             try
             {
-                string uri = Settings.Default.Q_PROMOTION_URL;
+                string uri = Settings.Default.QR_PROMOTION_URL;
                 WebChannelFactory<IQRVoucherService> channelFactory = new WebChannelFactory<IQRVoucherService>(new Uri(uri));
                 retVal = channelFactory.CreateChannel();
             }

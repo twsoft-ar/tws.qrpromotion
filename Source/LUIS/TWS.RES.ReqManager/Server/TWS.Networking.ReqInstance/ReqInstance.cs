@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Runtime.InteropServices;
 using System.Reflection;
+using System.Runtime.Remoting;
 
 namespace TWS.Networking
 {
@@ -17,6 +18,12 @@ namespace TWS.Networking
         public ReqInstance(Socket socket_)
         {
             mSocket = socket_;
+        }
+
+        public void StartProcess(Socket socket_)
+        {
+            mSocket = socket_;
+            StartProcess();
         }
 
         public void StartProcess()
