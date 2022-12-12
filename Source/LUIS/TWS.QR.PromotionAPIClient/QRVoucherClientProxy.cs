@@ -57,7 +57,7 @@ namespace TWS.QR.PromotionClient
             return retVal;
         }
 
-        public ResponseMessage RedeemVoucher(string qrcode_, string reference_)
+        public ResponseMessage RedeemVoucher(string qrcode_, string reference_, decimal? amount_ = null, string store_ = null, string terminal_ = null)
         {
             ResponseMessage retVal = new ResponseMessage();
 
@@ -65,7 +65,15 @@ namespace TWS.QR.PromotionClient
 
             try
             {
-                retVal = mQRVoucherService.RedeemVoucher(new RequestMessage() { VoucherCode = qrcode_, Reference = reference_ });
+                retVal = mQRVoucherService.RedeemVoucher(
+                    new RequestMessage() 
+                    { 
+                        VoucherCode = qrcode_, 
+                        Reference = reference_,
+                        Amount = amount_,
+                        Store = store_,
+                        Terminal = terminal_
+                    });
             }
             catch (Exception ex)
             {

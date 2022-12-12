@@ -2,11 +2,8 @@
 <SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="TWS.Networking.Properties" GeneratedClassName="Settings">
   <Profiles />
   <Settings>
-    <Setting Name="TCP_SERVER_PORT" Type="System.Int32" Scope="User">
+    <Setting Name="TCP_SERVER_PORT" Type="System.Int32" Scope="Application">
       <Value Profile="(Default)">7511</Value>
-    </Setting>
-    <Setting Name="Valor" Type="System.String" Scope="Application">
-      <Value Profile="(Default)" />
     </Setting>
   </Settings>
 </SettingsFile>

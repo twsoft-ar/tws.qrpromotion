@@ -39,6 +39,16 @@ namespace TWS.QR.PromotionClient.Interface
         public string VoucherCode { get; set; }
         [DataMember(IsRequired = false)]
         public string Reference { get; set; }
+
+        [DataMember(IsRequired = false)]
+        public decimal? Amount { get; set; }
+
+        [DataMember(IsRequired = false)]
+        public string Store { get; set; }
+
+        [DataMember(IsRequired = false)]
+        public string Terminal { get; set; }
+
     }
 
     [DataContract]
@@ -107,7 +117,7 @@ namespace TWS.QR.PromotionClient.Interface
         public string Price { get; set; }
 
         [DataMember(Name = "cantidad", IsRequired = false)]
-        public int Quantity { get; set; }
+        public int? Quantity { get; set; }
     }
 
     [DataContract]

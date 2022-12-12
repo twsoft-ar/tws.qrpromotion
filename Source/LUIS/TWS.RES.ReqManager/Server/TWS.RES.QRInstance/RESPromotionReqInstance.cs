@@ -115,7 +115,7 @@ namespace TWS.RES.QR
                 string bodyStr = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString();
                 var bodyFields = bodyStr.Split('|');
 
-                if (bodyFields.Length < 2)
+                if (bodyFields.Length < 5)
                 {
                     strAux = $"{StatusCode.FAIL}|Bad parameters";
                     //strAux = $"{-3}"; //bad parameters
@@ -124,11 +124,18 @@ namespace TWS.RES.QR
                 {
                     string qrCode = bodyFields[0].Trim();
                     string reference = bodyFields[1].Trim();
+                    decimal amount = Convert.ToDecimal(bodyFields[2])/100.0m;
+                    string store = bodyFields[3].Trim();    
+                    string terminal = bodyFields[4].Trim(); 
 
                     LOG.Info("{Message}", $"Before calling ProcessQRRedeem(), REQUEST:\r\nQR CODE = {qrCode}");
 
                     QRVoucherClientProxy client = new QRVoucherClientProxy();
-                    ResponseMessage response = client.RedeemVoucher(qrCode, reference);
+                    ResponseMessage response = client.RedeemVoucher(qrCode, 
+                                                                    reference, 
+                                                                    (amount == 0.00m? null: (decimal?)amount), 
+                                                                    (store == "" ? null: store),
+                                                                    (terminal == "" ? null : terminal));
 
                     strAux = $"{response.Status}|{response.Message}";
                     if (response.Status != StatusCode.OK)
