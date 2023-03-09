@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="..\WSReqClient\src\ByteStream.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\WSReqClient\src\levstring.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\WSReqClient\src\Logger.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\WSReqClient\src\Socket5.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\WSReqClient\src\WSReqClient.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\WSReqClient\include\ByteStream.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+    <ClInclude Include="..\WSReqClient\include\levstring.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+    <ClInclude Include="..\WSReqClient\include\Logger.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+    <ClInclude Include="..\WSReqClient\include\SafeList.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+    <ClInclude Include="..\WSReqClient\include\Socket5.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+    <ClInclude Include="..\WSReqClient\include\WSReqClient.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Resource.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header">
+      <UniqueIdentifier>{d30a7f4c-093b-4afe-a0fb-3a84a9dec804}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source">
+      <UniqueIdentifier>{348486cf-9e65-41e7-a636-44d22ec78011}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

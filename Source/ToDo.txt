@@ -1,0 +1,5 @@
+1. Estás haciendo el Redeem en el lado Cliente.
+2. Vas a devolver el status (del campo 'detalle') y con un pipe, luego el ID del detalle.
+3. Fijate del lado del server de devolver eso.
+4. seguir con el SIM, estás en GetQRCodeFromItem(), falta la parte donde levanta el QR de la ref, la obri+
+

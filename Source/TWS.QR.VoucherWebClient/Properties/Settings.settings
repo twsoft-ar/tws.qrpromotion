@@ -1,0 +1,15 @@
+﻿<?xml version='1.0' encoding='utf-8'?>
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="TWS.QR.VoucherWebClient.Properties" GeneratedClassName="Settings">
+  <Profiles />
+  <Settings>
+    <Setting Name="QR_PROMOTION_URL" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">http://MSI:52978/api/</Value>
+    </Setting>
+    <Setting Name="QR_VALIDATE_RESOURCE" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">ValidateVoucher</Value>
+    </Setting>
+    <Setting Name="QR_REDEEM_RESOURCE" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">RedeemVoucher</Value>
+    </Setting>
+  </Settings>
+</SettingsFile>

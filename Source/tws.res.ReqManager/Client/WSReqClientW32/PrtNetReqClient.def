@@ -1,0 +1,4 @@
+LIBRARY	"WSReqClientW32"
+
+EXPORTS
+		PrintOrder @1
