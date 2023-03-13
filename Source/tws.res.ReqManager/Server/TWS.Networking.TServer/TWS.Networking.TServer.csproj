@@ -60,9 +60,6 @@
     </Reference>
     <Reference Include="System.Data" />
     <Reference Include="System.Xml" />
-    <Reference Include="TWS.Log">
-      <HintPath>..\..\..\TWS.MercadoPago\Lib\Log\TWS.Log.dll</HintPath>
-    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Properties\AssemblyInfo.cs" />

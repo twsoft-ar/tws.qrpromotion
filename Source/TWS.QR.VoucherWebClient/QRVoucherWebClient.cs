@@ -266,6 +266,7 @@ namespace TWS.QR.PromotionClient
     {
         OK = 0,
         NOT_FOUND = 1,
+        BURNED = 5,
         WS_ENDPOINT_ERROR = -2,
         FAIL = -1,
 

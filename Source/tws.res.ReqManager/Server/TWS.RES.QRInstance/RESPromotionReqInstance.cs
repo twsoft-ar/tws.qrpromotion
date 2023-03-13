@@ -1,7 +1,13 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Data.SQLite;
 using System.Globalization;
+using System.IO;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
+using System.Threading;
 using TWS.Marshaling;
 using TWS.Networking;
 using TWS.QR.PromotionClient;
@@ -12,6 +18,8 @@ namespace TWS.RES.QR
     public class RESPromotionReqInstance : ReqInstance
     {
         private static readonly NLog.Logger LOG = NLog.LogManager.GetCurrentClassLogger();
+        private string mDBFileName = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().ManifestModule.FullyQualifiedName) + "\\Transaction.db3";
+
         enum QRPROMOTION_MSG { VALIDATE = 1, REDEEM = 2 };
 
         public RESPromotionReqInstance(Socket socket_) : base(socket_)
@@ -43,52 +51,141 @@ namespace TWS.RES.QR
 
             return retVal;
         }
-        
+
+        //Validation ReqInstance Handler
         private ReqMessage ProcessQRValidate(ReqMessage reqMsg_)
         {
             LOG.Trace("ENTER");
 
             ReqMessage retVal = new ReqMessage(null);
-            string strAux = "";
+
+            try
+            {
+                //create DB file if not exists
+                CreateTransactionsDatabase();
+
+                string qrCode = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString();
+
+                LOG.Info("{Message}", $"Before calling ValidateQRFromDB(), REQUEST:\r\nQR CODE = {qrCode}");
+
+                //look in DB
+                var (terminalId, status) = ValidateQRFromDB(qrCode);
+                var terminalSocket = ((System.Net.IPEndPoint)Socket.RemoteEndPoint).Address.Address;
+
+                if (status == (int)StatusCode.BURNED || (terminalId != 0 && terminalId != terminalSocket))
+                {
+                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
+                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
+                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
+                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
+                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
+                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
+                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
+                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
+                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
+                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
+                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
+                    //responder como bloqueado
+                    var strAux = $"{(int)StatusCode.BURNED}|{"Código ya utilizado"}";
+
+                    retVal.MessageType = reqMsg_.MessageType;
+                    retVal.Body = ByteStream.ToPByte(strAux);
+                    retVal.BodySize = retVal.Body.Length;
+                    retVal.Checksum = retVal.GenerateChecksum();
+
+                    return retVal;
+                }
+
+                retVal = ValidateQRFromAPI(reqMsg_, out ResponseMessage webResponse);
+
+                if (webResponse.status == (int)StatusCode.OK)
+                {
+                    TransactionDTO transactionDTO = new TransactionDTO()
+                    {
+                        ExpirationDate = webResponse.voucher.vencimiento,
+                        PromotionType = (PromotionType)webResponse.voucher.tipoCodigo,
+                        PromQty = (int)webResponse.voucher.cantidad,
+                        QRCode = qrCode,
+                        TerminalId = terminalSocket,
+                        Timestamp = DateTime.Now,
+                        State = PromotionStatus.Reserved,
+                        Processed = false,
+                    };
+
+                    InsertQRIntoDB(transactionDTO);
+                }
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                new Thread(() => { SynchronizeBurnedRecords(); PurgeTable(); }).Start();
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
+        }
+
+        //Redeem ReqInstance Handler
+        private ReqMessage ProcessQRRedeem(ReqMessage reqMsg_)
+        {
+            ReqMessage retVal = new ReqMessage(null);
+
+            try
+            {
+                string qrCode = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString();
+                TransactionDTO transactionDTO = new TransactionDTO()
+                {
+                    QRCode = $"{ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string))}".Split('|')[0],
+                    State = PromotionStatus.Burned,
+                    ExtraData1 = $"{ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string))}"
+                };
+
+                var count = SetQRStatusAndExtraData(transactionDTO);
+
+                retVal = RedeemQRFromAPI(reqMsg_, out ResponseMessage webResponse_);
+
+                if (webResponse_.status == (int)StatusCode.OK || webResponse_.status == (int)StatusCode.BURNED)
+                {
+                    transactionDTO.Processed = true;
+                    count = SetQRProcessedStatusFromDB(transactionDTO);
+                }
+
+                //Purge here in a new thread, perhaps!!!!
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                new Thread(() => { SynchronizeBurnedRecords(); PurgeTable(); }).Start();
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
+        }
+
+        //API Validation way
+        private ReqMessage ValidateQRFromAPI(ReqMessage reqMsg_, out ResponseMessage webResponse_)
+        {
+            LOG.Trace("ENTER");
+
+            ReqMessage retVal = new ReqMessage(null);
+            string responseBodyString = "";
+            webResponse_ = null;
 
             try
             {
                 string qrCode = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString();
 
-                LOG.Info("{Message}", $"Before calling ProcessQRValidate(), REQUEST:\r\nQR CODE = {qrCode}");
-
-                QRVoucherWebClient client = new QRVoucherWebClient();
-                //QRVoucherClientProxy client = new QRVoucherClientProxy();
-                ResponseMessage response = client.ValidateVoucher(qrCode);
-
-                strAux = $"{(int)response.status}|{response.message}";
-                if (response.status == (int)StatusCode.FAIL)
-                {
-                    strAux = $"{((int)response.status)}|Fallo al validar QR"; //web client execution fail
-                    LOG.Error("{Message}", $"Failed to validate qr code");
-                }
-                else if (response.status == (int)StatusCode.WS_ENDPOINT_ERROR)
-                {
-                    strAux = $"{(int)response.status}|Sin conexion con Servicio QR"; //web client execution fail
-                    LOG.Error("{Message}", $"No connection to QR WS EndPoint");
-                }
-                /*else if (response.Status == StatusCode.NOT_FOUND)
-                {
-                    strAux = $"{(int)response.Status}|QR No encontrado";
-                    LOG.Error("{Message}", $"{strAux}");
-                }*/
-                else if (response.status == (int)StatusCode.OK)
-                {
-                    foreach (var item in response.items)
-                    {
-                        strAux += $"|{((int)item.tipo)}|{item.plu}|{item.cantidad}";
-                    }
-                }
-                LOG.Info("{Message}", $"After calling ValidateVoucher(), RESPONSE:\r\nSTATUS={response.status}, MSG={response.message??"null"}");
+                APIValidateQRCode(qrCode, out webResponse_, out responseBodyString);
             }
             catch (Exception ex)
             {
-                strAux = $"{(int)StatusCode.FAIL}|Exception caught"; //web client execution fail
+                responseBodyString = $"{(int)StatusCode.FAIL}|Exception caught"; //web client execution fail
                 LOG.Fatal(ex, "{Message}", "Exception caught.");
             }
             finally
@@ -97,64 +194,104 @@ namespace TWS.RES.QR
             }
 
             retVal.MessageType = reqMsg_.MessageType;
-            retVal.Body = ByteStream.ToPByte(strAux);
+            retVal.Body = ByteStream.ToPByte(responseBodyString);
             retVal.BodySize = retVal.Body.Length;
             retVal.Checksum = retVal.GenerateChecksum();
 
             return retVal;
         }
+        //DB Validation way
+        private (long, long) ValidateQRFromDB(string qrCode_)
+        {
+            LOG.Trace("ENTER");
 
-        private ReqMessage ProcessQRRedeem(ReqMessage reqMsg_)
+            (long, long) retVal = (0, 0);
+
+            try
+            {
+                using (SQLiteConnection sqlConn = new SQLiteConnection($"Data Source={mDBFileName}"))
+                {
+                    sqlConn.Open();
+                    using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
+                    {
+                        sqlCmd.CommandText = "SELECT  `TerminalId`           AS TERMINAL_ID, \r\n" +
+                                             "        `Status`               AS STATUS       \r\n" +
+                                             "FROM    `Transaction`                          \r\n" +
+                                             "WHERE   `QRCode`   =  @qrCode   AND            \r\n" +
+                                             "        `PromType` <> @promType                \r\n";
+
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = qrCode_ });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promType", DbType = System.Data.DbType.Int32, Value = 1 });
+
+                        sqlCmd.CommandType = System.Data.CommandType.Text;
+                        sqlCmd.CommandTimeout = 300;
+
+                        using (SQLiteDataReader dr = sqlCmd.ExecuteReader(System.Data.CommandBehavior.CloseConnection))
+                        {
+                            if (dr.Read())
+                            {
+                                retVal = ((long)dr["TERMINAL_ID"], (long)dr["STATUS"]);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
+        }
+        //API Call Validation Function
+        private void APIValidateQRCode(string qrCode_, out ResponseMessage webResponse_, out string responseBodyString_)
+        {
+            LOG.Info("{Message}", $"Before calling ValidateVoucher(), REQUEST:\r\nQR CODE = {qrCode_}");
+
+            QRVoucherWebClient client = new QRVoucherWebClient();
+            webResponse_ = client.ValidateVoucher(qrCode_);
+
+            responseBodyString_ = $"{(int)webResponse_.status}|{webResponse_.message}";
+            if (webResponse_.status == (int)StatusCode.FAIL)
+            {
+                responseBodyString_ = $"{((int)webResponse_.status)}|Fallo al validar QR"; //web client execution fail
+                LOG.Error("{Message}", $"Failed to validate qr code");
+            }
+            else if (webResponse_.status == (int)StatusCode.WS_ENDPOINT_ERROR)
+            {
+                responseBodyString_ = $"{(int)webResponse_.status}|Sin conexion con Servicio QR"; //web client execution fail
+                LOG.Error("{Message}", $"No connection to QR WS EndPoint");
+            }
+            else if (webResponse_.status == (int)StatusCode.OK)
+            {
+                foreach (var item in webResponse_.items)
+                {
+                    responseBodyString_ += $"|{((int)item.tipo)}|{item.plu}|{item.cantidad}";
+                }
+            }
+            LOG.Info("{Message}", $"After calling ValidateVoucher(), RESPONSE:\r\nSTATUS={webResponse_.status}, MSG={webResponse_.message ?? "null"}");
+        }
+        //API  Redeem way
+        private ReqMessage RedeemQRFromAPI(ReqMessage reqMsg_, out ResponseMessage webResponse_)
         {
             LOG.Trace("ENTER");
 
             ReqMessage retVal = new ReqMessage(null);
-            string strAux = "";
+            string responseBodyString = "";
+            webResponse_ = null;
 
             try
             {
                 string bodyStr = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString();
-                var bodyFields = bodyStr.Split('|');
-
-                if (bodyFields.Length < 5)
-                {
-                    strAux = $"{(int)StatusCode.FAIL}|Bad parameters";
-                    //strAux = $"{-3}"; //bad parameters
-                }
-                else
-                {
-                    string qrCode = bodyFields[0].Trim();
-                    string reference = bodyFields[1].Trim();
-                    decimal amount = Convert.ToDecimal(bodyFields[2])/100.0m;
-                    string store = bodyFields[3].Trim();    
-                    string terminal = bodyFields[4].Trim(); 
-
-                    LOG.Info("{Message}", $"Before calling ProcessQRRedeem(), REQUEST:\r\nQR CODE = {qrCode}");
-
-                    //QRVoucherClientProxy client = new QRVoucherClientProxy();
-                    QRVoucherWebClient client = new QRVoucherWebClient();
-                    ResponseMessage response = client.RedeemVoucher(qrCode, 
-                                                                    reference, 
-                                                                    (amount == 0.00m? null: (decimal?)amount), 
-                                                                    (store == "" ? null: store),
-                                                                    (terminal == "" ? null : terminal));
-
-                    strAux = $"{response.status}|{response.message??""}";
-                    if (response.status != (int)StatusCode.OK)
-                    {
-                        LOG.Error("{Message}", $"Failed to validate qr code. {response.message}");
-                    }
-                    else
-                    {
-                        strAux += $"|{response.voucher.estado}|{response.detalle.id}|{response.voucher.id}";
-                    }
-
-                    LOG.Info("{Message}", $"After calling ValidateVoucher(), RESPONSE:\r\nSTATUS={response.status}, MSG={response.message ?? "null"}");
-                }
+                APIRedeemQRCode(bodyStr, out webResponse_, out responseBodyString);
             }
             catch (Exception ex)
             {
-                strAux = $"{(int)StatusCode.FAIL}"; //exception
+                responseBodyString = $"{(int)StatusCode.FAIL}"; //exception
                 LOG.Fatal(ex, "{Message}", "Exception caught.");
             }
             finally
@@ -163,11 +300,391 @@ namespace TWS.RES.QR
             }
 
             retVal.MessageType = reqMsg_.MessageType;
-            retVal.Body = ByteStream.ToPByte(strAux);
+            retVal.Body = ByteStream.ToPByte(responseBodyString);
             retVal.BodySize = retVal.Body.Length;
             retVal.Checksum = retVal.GenerateChecksum();
 
             return retVal;
         }
+        //API Call Redeem Function
+        private void APIRedeemQRCode(string requestBodyString_, out ResponseMessage webResponse_, out string responseBodyString_)
+        {
+            webResponse_ = null;
+      
+            var bodyFields = requestBodyString_.Split('|');
+
+            if (bodyFields.Length < 5)
+            {
+                responseBodyString_ = $"{(int)StatusCode.FAIL}|Bad parameters";
+            }
+            else
+            {
+                string qrCode = bodyFields[0].Trim();
+                string reference = bodyFields[1].Trim();
+                decimal amount = Convert.ToDecimal(bodyFields[2]) / 100.0m;
+                string store = bodyFields[3].Trim();
+                string terminal = bodyFields[4].Trim();
+
+                LOG.Info("{Message}", $"Before calling ProcessQRRedeem(), REQUEST:\r\nQR CODE = {qrCode}");
+
+                QRVoucherWebClient client = new QRVoucherWebClient();
+                webResponse_ = client.RedeemVoucher(qrCode,
+                                                                reference,
+                                                                (amount == 0.00m ? null : (decimal?)amount),
+                                                                (store == "" ? null : store),
+                                                                (terminal == "" ? null : terminal));
+
+                responseBodyString_ = $"{webResponse_.status}|{webResponse_.message ?? ""}";
+                if (webResponse_.status != (int)StatusCode.OK)
+                {
+                    LOG.Error("{Message}", $"Failed to validate qr code. {webResponse_.message}");
+                }
+                else
+                {
+                    responseBodyString_ += $"|{webResponse_.voucher.estado}|{webResponse_.detalle.id}|{webResponse_.voucher.id}";
+                }
+
+                LOG.Info("{Message}", $"After calling ValidateVoucher(), RESPONSE:\r\nSTATUS={webResponse_.status}, MSG={webResponse_.message ?? "null"}");
+            }
+        }
+
+        private int PurgeTable()
+        {
+            LOG.Trace("ENTER");
+
+            int retVal = 0;
+
+            try
+            {
+                using (SQLiteConnection sqlConn = new SQLiteConnection($"Data Source={mDBFileName}"))
+                {
+                    sqlConn.Open();
+                    using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
+                    {
+                        sqlCmd.CommandText = "DELETE                               \r\n" +
+                                             "FROM    `Transaction`                \r\n" +
+                                             "WHERE   `Processed` = @processed OR  \r\n" +
+                                             "        (`Timestamp` < @date     AND \r\n" +
+                                             "         `Status`    = @status)";
+
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@processed", DbType = System.Data.DbType.Boolean, Value = true});
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@date", DbType = System.Data.DbType.Date, Value = DateTime.Now });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@status", DbType = System.Data.DbType.Int32, Value = 1 });
+
+                        sqlCmd.CommandType = System.Data.CommandType.Text;
+                        sqlCmd.CommandTimeout = 300;
+
+                        retVal = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
+        }
+
+        private int SynchronizeBurnedRecords()
+        {
+            LOG.Trace("ENTER");
+
+            int retVal = 0;
+
+            try
+            {
+                var burnedList = GetBurnedRecords();
+                foreach (var voucher in burnedList)
+                {
+                    try
+                    {
+                        APIRedeemQRCode(voucher.ExtraData1, out ResponseMessage webResponse, out string responseBodyString);
+
+                        if (webResponse.status == (int)StatusCode.OK || webResponse.status == (int)StatusCode.BURNED)
+                        {
+                            SetQRProcessedStatusFromDB(new TransactionDTO() { QRCode = voucher.QRCode, Processed = true });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LOG.Fatal(ex, "{Message}", "Exception caught.");
+                    }
+
+                    Thread.Sleep(0);
+                }
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
+        }
+
+        private List<TransactionDTO> GetBurnedRecords()
+        {
+            LOG.Trace("ENTER");
+
+            List<TransactionDTO> retVal  = new List<TransactionDTO>();
+
+            try
+            {
+                using (SQLiteConnection sqlConn = new SQLiteConnection($"Data Source={mDBFileName}"))
+                {
+                    sqlConn.Open();
+                    using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
+                    {
+                        sqlCmd.CommandText = "SELECT  `QRCode`           AS QR_CODE,  \r\n" +
+                                             "        `ExtraData1`       AS BURN_DATA \r\n" +
+                                             "FROM    `Transaction`                   \r\n" +
+                                             "WHERE   `Processed` = @processed   AND  \r\n" +
+                                             "        `Status`    = @status           \r\n";
+
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@processed", DbType = System.Data.DbType.Boolean, Value = false });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@status", DbType = System.Data.DbType.Int32, Value = (int)PromotionStatus.Burned });
+
+                        sqlCmd.CommandType = System.Data.CommandType.Text;
+                        sqlCmd.CommandTimeout = 300;
+
+                        using (SQLiteDataReader dr = sqlCmd.ExecuteReader(System.Data.CommandBehavior.CloseConnection))
+                        {
+                            while (dr.Read())
+                                retVal.Add(new TransactionDTO() { QRCode = (string)dr["QR_CODE"], ExtraData1 = (string)dr["BURN_DATA"] });
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
+        }
+
+        private void CreateTransactionsDatabase()
+        {
+            if (!File.Exists(mDBFileName))
+            {
+                SQLiteConnection.CreateFile(mDBFileName);
+
+                using (SQLiteConnection sqlConn = new SQLiteConnection($"Data Source={mDBFileName}"))
+                {
+                    sqlConn.Open();
+                    using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
+                    {
+                        sqlCmd.CommandText = "CREATE TABLE `Transaction` " +
+                                                            "(" +
+                                                                "`TerminalId`	        INTEGER  NOT NULL    DEFAULT 0," +
+                                                                "`PromType`	            INTEGER  NOT NULL    DEFAULT 0," +
+                                                                "`QRCode`	            TEXT,                          " +
+                                                                "`PromExpirationDate`   TEXT,                          " +
+                                                                "`PromQty`	            INTEGER  NOT NULL    DEFAULT 0," +
+                                                                "`Timestamp`            TEXT,                          " +
+                                                                "`ExtraData1`           TEXT,                          " +
+                                                                "`ExtraData2`           TEXT,                          " +
+                                                                "`ExtraData3`           TEXT,                          " +
+                                                                "`ExtraData4`           TEXT,                          " +
+                                                                "`Status`	            INTEGER  NOT NULL    DEFAULT 0," +
+                                                                "`Processed`	        INTEGER  NOT NULL    DEFAULT 0," +
+                                                                "PRIMARY KEY(`QRCode`)" +
+                                                            "); ";
+
+                        sqlCmd.CommandType = System.Data.CommandType.Text;
+                        sqlCmd.CommandTimeout = 300;
+                        
+                        int qty = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
+                    }
+                }
+            }
+        }
+        private int InsertQRIntoDB(TransactionDTO trans_)
+        {
+            LOG.Trace("ENTER");
+
+            int retVal = 0;
+            SQLiteConnection sqlConn = null;
+
+            try
+            {
+                LOG.Info("{Message}", $"Inserting transaction: {trans_.Serialize()}");
+
+                using (sqlConn = new SQLiteConnection($"Data Source={mDBFileName}"))
+                {
+                    sqlConn.Open();
+                    using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
+                    {
+                        sqlCmd.CommandText = "INSERT INTO `Transaction`              \r\n" +
+                                             "           (`TerminalId`,              \r\n" +
+                                             "            `PromType`,                \r\n" +
+                                             "            `QRCode`,                  \r\n" +
+                                             "            `PromExpirationDate`,      \r\n" +
+                                             "            `PromQty`,                 \r\n" +
+                                             "            `Timestamp`,               \r\n" +
+                                             "            `Status`,                  \r\n" +
+                                             "            `Processed`)               \r\n" +
+                                             "SELECT      @terminalId,               \r\n" +
+                                             "            @promType,                 \r\n" +
+                                             "            @qrCode,                   \r\n" +
+                                             "            @promExpirationDate,       \r\n" +
+                                             "            @promQty,                  \r\n" +
+                                             "            @timeStamp,                \r\n" +
+                                             "            @state,                    \r\n" +
+                                             "            @processed                 \r\n" +
+                                             "WHERE NOT EXISTS (SELECT * FROM `Transaction` WHERE `QRCode` = @qrCode); \r\n";
+
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@terminalId", DbType = System.Data.DbType.Int32, Value = trans_.TerminalId });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promType", DbType = System.Data.DbType.Int32, Value = trans_.PromotionType });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = trans_.QRCode });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promExpirationDate", DbType = System.Data.DbType.DateTime, Value = trans_.ExpirationDate });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promQty", DbType = System.Data.DbType.Int32, Value = trans_.PromQty });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@timeStamp", DbType = System.Data.DbType.DateTime, Value = trans_.Timestamp });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@state", DbType = System.Data.DbType.Int32, Value = trans_.State });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@processed", DbType = System.Data.DbType.Boolean, Value = false });
+
+                        sqlCmd.CommandType = System.Data.CommandType.Text;
+                        sqlCmd.CommandTimeout = 300;
+
+                        retVal = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
+        }
+        private int SetQRStatusAndExtraData(TransactionDTO trans_)
+        {
+            LOG.Trace("ENTER");
+
+            int retVal = 0;
+            SQLiteConnection sqlConn = null;
+
+            try
+            {
+                LOG.Info("{Message}", $"Changing transaction state: {trans_.Serialize()}");
+
+                using (sqlConn = new SQLiteConnection($"Data Source={mDBFileName}"))
+                {
+                    sqlConn.Open();
+                    using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
+                    {
+                        sqlCmd.CommandText = "UPDATE `Transaction`               \r\n" +
+                                             "SET    `Status`     = @status,     \r\n" +
+                                             "       `ExtraData1` = @extraData1  \r\n" +
+                                             "WHERE  `QRCode` = @qrCode;         \r\n";
+
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = trans_.QRCode });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@status", DbType = System.Data.DbType.Int32, Value = trans_.State });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@extraData1", DbType = System.Data.DbType.String, Value = trans_.ExtraData1 });
+
+                        sqlCmd.CommandType = System.Data.CommandType.Text;
+                        sqlCmd.CommandTimeout = 300;
+
+                        retVal = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
+        }
+        private int SetQRProcessedStatusFromDB(TransactionDTO trans_)
+        {
+            LOG.Trace("ENTER");
+
+            int retVal = 0;
+            SQLiteConnection sqlConn = null;
+
+            try
+            {
+                LOG.Info("{Message}", $"Changing transaction state: {trans_.Serialize()}");
+
+                using (sqlConn = new SQLiteConnection($"Data Source={mDBFileName}"))
+                {
+                    sqlConn.Open();
+                    using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
+                    {
+                        sqlCmd.CommandText = "UPDATE `Transaction`            \r\n" +
+                                             "SET    `Processed`  = @state    \r\n" +
+                                             "WHERE  `QRCode`     = @qrCode;  \r\n";
+
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = trans_.QRCode });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@state", DbType = System.Data.DbType.Boolean, Value = trans_.Processed });
+
+                        sqlCmd.CommandType = System.Data.CommandType.Text;
+                        sqlCmd.CommandTimeout = 300;
+
+                        retVal = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
+        }
     }
+    internal enum PromotionType
+    {
+        PerPromotion = 1,
+        PerVoucher = 2,        
+    }
+    internal enum PromotionStatus
+    {
+        Reserved = 1,
+        Burned = 5
+    }
+    internal struct TransactionDTO
+    {
+        public long TerminalId { get; set; }
+        public PromotionType PromotionType { get; set; }
+        public string QRCode { get; set; }
+        public DateTime? ExpirationDate { get; set; }
+        public int PromQty { get; set; }
+        public string ExtraData1 { get; set; }
+        public string ExtraData2 { get; set; }
+        public string ExtraData3 { get; set; }
+        public string ExtraData4 { get; set; }
+        public DateTime Timestamp { get; set; }
+        public PromotionStatus State { get; set; }
+        public bool Processed { get; set; }
+        public string Serialize()
+        {
+            return JsonConvert.SerializeObject(this, Formatting.Indented);
+        }
+    };
 }
