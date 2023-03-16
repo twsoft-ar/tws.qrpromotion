@@ -28,6 +28,7 @@ namespace QRPROMOTION_MSG
 {
 	const __int32 VALIDATE = 0x01;
 	const __int32 REDEEM   = 0x02;
+	const __int32 VOIDQR   = 0x03;
 };
 
 #endif

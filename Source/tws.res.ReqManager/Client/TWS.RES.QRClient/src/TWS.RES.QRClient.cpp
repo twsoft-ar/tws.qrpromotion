@@ -118,7 +118,7 @@ void Validate(IN  char* ip_,            IN  int  port_,         IN  char* qrCode
 
 TWSRESQRPROMOTIONCLIENT_API_EXPORTS
 void Redeem(IN  char* ip_,			IN  int   port_,	IN  char* qrCode_,		IN  char* reference_,	IN  int   msgSize_, 
-			IN  int   amount_,		IN  char* store_,	IN  char* terminal_,   
+			IN  long  amount_,		IN  char* store_,	IN  char* terminal_,   
 			OUT char* responseMsg_, OUT int*  status_,	OUT int*  voucherId_,	OUT int*  transId_,		OUT char* res_)
 {
 	ReqMessage	reqMsg;
@@ -163,6 +163,76 @@ void Redeem(IN  char* ip_,			IN  int   port_,	IN  char* qrCode_,		IN  char* refe
 				strResponse = responseParts[0];
 				Logger::LogEvent(LOG_FILE, lev::string() << "In Redeem(): " << strResponse, true);
 				*res_ = RES_OK;
+			}
+			else
+			{
+				strResponse = "BAD RESPONSE FORM [0]";
+				Logger::LogEvent(LOG_FILE, lev::string() << "In Redeem(): " << strResponse, true);
+				*res_ = EXECUTION_ERROR;
+			}
+		}
+		else
+		{
+			//devuelvo codigo de error		
+			*res_ = (char)reqMsg.MessageType;
+		}
+	}
+	catch (const std::exception ex)
+	{
+		lev::string strErr = "";
+		strErr << "In Redeem(), exception caught: " << ex.what();
+		strResponse = strErr;
+
+		Logger::LogEvent(LOG_FILE, strErr, true);
+		*res_ = 0;
+	}
+	catch (...)
+	{
+		lev::string strErr = "";
+		strErr << "In Redeem(), unhandled exception caught";
+		strResponse = strErr;
+
+		Logger::LogEvent(LOG_FILE, strErr, true);
+		*res_ = 0;
+	}
+
+	Logger::LogEvent(LOG_FILE, "Exit from Redeem()", true);
+}
+
+
+TWSRESQRPROMOTIONCLIENT_API_EXPORTS
+void Void(IN char* ip_,       IN int port_,    IN  char* qrCode_,      IN char* store_, 
+	      IN char* terminal_, IN int msgSize_, OUT char* responseMsg_, OUT char* res_)
+{
+	ReqMessage	reqMsg;
+	ByteStream	msgChain;
+
+	lev::string	strBody;
+	lev::string strResponse;
+
+	try
+	{
+		Logger::LogEvent(LOG_FILE, "Enter to Redeem()", true);
+
+		strBody << qrCode_ << "|" << store_ << "|" << terminal_;
+
+		msgChain.Assign((Byte*)(const char*)strBody, strBody.Longitud());
+
+		ReqClient reqClient(ip_, port_, ReqMessage(QRPROMOTION_MSG::VOIDQR, msgChain.Length(), (Byte*)msgChain));
+
+		if (reqClient.RequestCommand(reqMsg))
+		{
+			lev::string str((char*)reqMsg.Body, reqMsg.BodySize);
+			lev::SafeList<lev::string> responseParts = str.Split('|');
+
+			if (responseParts.Size() == 1)
+			{
+				lev::SafeList<lev::string> keyVal;
+				*res_ = RES_OK;
+			}
+			else if (responseParts.Size() > 1)
+			{
+				memcpy(responseMsg_, responseParts[1], min(responseParts[1].Longitud(), msgSize_ - 1));
 			}
 			else
 			{

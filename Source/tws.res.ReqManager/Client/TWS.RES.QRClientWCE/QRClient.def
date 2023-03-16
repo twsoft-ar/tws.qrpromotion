@@ -3,4 +3,5 @@ LIBRARY "TWS.RES.QRClientWCE50.dll"
 EXPORTS
 		Validate @1
 		Redeem   @2
-		Test	 @3
+		Void     @3
+		Test	 @4

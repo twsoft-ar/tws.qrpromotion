@@ -200,6 +200,10 @@
 				>
 			</File>
 			<File
+				RelativePath=".\resource.h"
+				>
+			</File>
+			<File
 				RelativePath="..\WSReqClient\include\SafeList.h"
 				>
 			</File>
@@ -239,6 +243,10 @@
 			</File>
 			<File
 				RelativePath="..\WSReqClient\src\WSReqClient.cpp"
+				>
+			</File>
+			<File
+				RelativePath=".\WSReqClientWCE50.rc"
 				>
 			</File>
 		</Filter>

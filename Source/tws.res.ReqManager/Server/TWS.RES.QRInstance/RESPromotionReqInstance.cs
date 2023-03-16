@@ -20,16 +20,14 @@ namespace TWS.RES.QR
         private static readonly NLog.Logger LOG = NLog.LogManager.GetCurrentClassLogger();
         private string mDBFileName = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().ManifestModule.FullyQualifiedName) + "\\Transaction.db3";
 
-        enum QRPROMOTION_MSG { VALIDATE = 1, REDEEM = 2 };
+        enum QRPROMOTION_MSG { VALIDATE = 1, REDEEM = 2, VOIDQR = 3 };
 
         public RESPromotionReqInstance(Socket socket_) : base(socket_)
         {
         }
-
         public RESPromotionReqInstance()
         {
         }
-
         protected override ReqMessage ProcessIncomingRequest(ReqMessage msg_)
         {
             ReqMessage retVal = new ReqMessage(null);
@@ -42,6 +40,10 @@ namespace TWS.RES.QR
 
                 case (int)QRPROMOTION_MSG.REDEEM:
                     retVal = ProcessQRRedeem(msg_);
+                    break;
+
+                case (int)QRPROMOTION_MSG.VOIDQR:
+                    retVal = ProcessVoidQR(msg_);
                     break;
 
                 default:
@@ -74,18 +76,6 @@ namespace TWS.RES.QR
 
                 if (status == (int)StatusCode.BURNED || (terminalId != 0 && terminalId != terminalSocket))
                 {
-                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
-                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
-                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
-                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
-                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
-                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
-                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
-                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
-                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
-                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
-                    //REVISAR PORQUE EN ESTE CASO NO DEVUELVE EL ERROR DE YA UTILIZADO
-                    //responder como bloqueado
                     var strAux = $"{(int)StatusCode.BURNED}|{"Código ya utilizado"}";
 
                     retVal.MessageType = reqMsg_.MessageType;
@@ -110,9 +100,12 @@ namespace TWS.RES.QR
                         Timestamp = DateTime.Now,
                         State = PromotionStatus.Reserved,
                         Processed = false,
+                        ExtraData1 = ""
                     };
 
-                    InsertQRIntoDB(transactionDTO);
+                    var insertedRecords = InsertQRIntoDB(transactionDTO);
+
+                    LOG.Info("{Message}", $"Inserted {insertedRecords} record{(insertedRecords == 1? "":"s")}");
                 }
             }
             catch (Exception ex)
@@ -121,13 +114,66 @@ namespace TWS.RES.QR
             }
             finally
             {
-                new Thread(() => { SynchronizeBurnedRecords(); PurgeTable(); }).Start();
+                DoSynchronizeTransactions();
                 LOG.Trace("EXIT");
             }
 
             return retVal;
         }
 
+        private void DoSynchronizeTransactions()
+        {
+            new Thread(() => { SynchronizeBurnedRecords(); PurgeTable(); }).Start();
+        }
+
+        private ReqMessage ProcessVoidQR(ReqMessage reqMsg_)
+        {
+            ReqMessage retVal = new ReqMessage(null);
+            var respBpdy = "";
+            string[] bodyFields = { };
+
+            try
+            {
+                bodyFields = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString().Split('|');
+
+                respBpdy = $"{(int)StatusCode.OK}";
+                if (bodyFields.Length < 2)
+                {
+                    respBpdy = $"{(int)StatusCode.FAIL}|Bad parameters";
+                }
+                else
+                {
+                    var qrCode = bodyFields[0];
+                    var terminal = ((System.Net.IPEndPoint)Socket.RemoteEndPoint).Address.Address;
+
+                    TransactionDTO transactionDTO = new TransactionDTO()
+                    {
+                        QRCode = qrCode,
+                        TerminalId = terminal,
+                    };
+
+                    var deletedRecords = DeleteQR(transactionDTO);
+                    LOG.Info("{Message}", $"Deleted {deletedRecords} record{(deletedRecords == 1 ? "" : "s")}");
+                }
+            }
+            catch (Exception ex)
+            {
+                respBpdy = $"{(int)StatusCode.FAIL}|Falla in eliminar promoción";
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                DoSynchronizeTransactions();
+                LOG.Trace("EXIT");
+            }
+
+            retVal.MessageType = reqMsg_.MessageType;
+            retVal.Body = ByteStream.ToPByte(respBpdy);
+            retVal.BodySize = retVal.Body.Length;
+            retVal.Checksum = retVal.GenerateChecksum();
+
+            return retVal;
+        }
         //Redeem ReqInstance Handler
         private ReqMessage ProcessQRRedeem(ReqMessage reqMsg_)
         {
@@ -161,13 +207,12 @@ namespace TWS.RES.QR
             }
             finally
             {
-                new Thread(() => { SynchronizeBurnedRecords(); PurgeTable(); }).Start();
+                DoSynchronizeTransactions();
                 LOG.Trace("EXIT");
             }
 
             return retVal;
         }
-
         //API Validation way
         private ReqMessage ValidateQRFromAPI(ReqMessage reqMsg_, out ResponseMessage webResponse_)
         {
@@ -234,6 +279,7 @@ namespace TWS.RES.QR
                             }
                         }
                     }
+                    sqlConn.Close();
                 }
             }
             catch (Exception ex)
@@ -347,7 +393,6 @@ namespace TWS.RES.QR
                 LOG.Info("{Message}", $"After calling ValidateVoucher(), RESPONSE:\r\nSTATUS={webResponse_.status}, MSG={webResponse_.message ?? "null"}");
             }
         }
-
         private int PurgeTable()
         {
             LOG.Trace("ENTER");
@@ -368,7 +413,7 @@ namespace TWS.RES.QR
                                              "         `Status`    = @status)";
 
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@processed", DbType = System.Data.DbType.Boolean, Value = true});
-                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@date", DbType = System.Data.DbType.Date, Value = DateTime.Now });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@date", DbType = System.Data.DbType.Date, Value = DateTime.Now.AddDays(-1) });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@status", DbType = System.Data.DbType.Int32, Value = 1 });
 
                         sqlCmd.CommandType = System.Data.CommandType.Text;
@@ -376,6 +421,7 @@ namespace TWS.RES.QR
 
                         retVal = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
                     }
+                    sqlConn.Close();
                 }
             }
             catch (Exception ex)
@@ -389,7 +435,6 @@ namespace TWS.RES.QR
 
             return retVal;
         }
-
         private int SynchronizeBurnedRecords()
         {
             LOG.Trace("ENTER");
@@ -429,7 +474,6 @@ namespace TWS.RES.QR
 
             return retVal;
         }
-
         private List<TransactionDTO> GetBurnedRecords()
         {
             LOG.Trace("ENTER");
@@ -461,6 +505,7 @@ namespace TWS.RES.QR
                                 retVal.Add(new TransactionDTO() { QRCode = (string)dr["QR_CODE"], ExtraData1 = (string)dr["BURN_DATA"] });
                         }
                     }
+                    sqlConn.Close();
                 }
             }
             catch (Exception ex)
@@ -474,7 +519,6 @@ namespace TWS.RES.QR
 
             return retVal;
         }
-
         private void CreateTransactionsDatabase()
         {
             if (!File.Exists(mDBFileName))
@@ -488,7 +532,7 @@ namespace TWS.RES.QR
                     {
                         sqlCmd.CommandText = "CREATE TABLE `Transaction` " +
                                                             "(" +
-                                                                "`TerminalId`	        INTEGER  NOT NULL    DEFAULT 0," +
+                                                                "`TerminalId`	        BIGINT   NOT NULL    DEFAULT 0," +
                                                                 "`PromType`	            INTEGER  NOT NULL    DEFAULT 0," +
                                                                 "`QRCode`	            TEXT,                          " +
                                                                 "`PromExpirationDate`   TEXT,                          " +
@@ -508,6 +552,7 @@ namespace TWS.RES.QR
                         
                         int qty = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
                     }
+                    sqlConn.Close();
                 }
             }
         }
@@ -546,7 +591,7 @@ namespace TWS.RES.QR
                                              "            @processed                 \r\n" +
                                              "WHERE NOT EXISTS (SELECT * FROM `Transaction` WHERE `QRCode` = @qrCode); \r\n";
 
-                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@terminalId", DbType = System.Data.DbType.Int32, Value = trans_.TerminalId });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@terminalId", DbType = System.Data.DbType.Int64, Value = trans_.TerminalId });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promType", DbType = System.Data.DbType.Int32, Value = trans_.PromotionType });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = trans_.QRCode });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promExpirationDate", DbType = System.Data.DbType.DateTime, Value = trans_.ExpirationDate });
@@ -560,6 +605,7 @@ namespace TWS.RES.QR
 
                         retVal = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
                     }
+                    sqlConn.Close();
                 }
             }
             catch (Exception ex)
@@ -603,6 +649,50 @@ namespace TWS.RES.QR
 
                         retVal = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
                     }
+                    sqlConn.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
+        }
+        private int DeleteQR(TransactionDTO trans_)
+        {
+            LOG.Trace("ENTER");
+
+            int retVal = 0;
+            SQLiteConnection sqlConn = null;
+
+            try
+            {
+                LOG.Info("{Message}", $"Changing transaction state: {trans_.Serialize()}");
+
+                using (sqlConn = new SQLiteConnection($"Data Source={mDBFileName}"))
+                {
+                    sqlConn.Open();
+                    using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
+                    {
+                        sqlCmd.CommandText = "DELETE                            \r\n" +
+                                             "FROM   `Transaction`              \r\n" +
+                                             "WHERE  `QRCode`     = @qrCode AND \r\n" +
+                                             "       `TerminalId` = @terminal;  \r\n";
+
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = trans_.QRCode });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@terminal", DbType = System.Data.DbType.Int64, Value = trans_.TerminalId });
+
+                        sqlCmd.CommandType = System.Data.CommandType.Text;
+                        sqlCmd.CommandTimeout = 300;
+
+                        retVal = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
+                    }
+                    sqlConn.Close();
                 }
             }
             catch (Exception ex)
@@ -644,6 +734,7 @@ namespace TWS.RES.QR
 
                         retVal = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
                     }
+                    sqlConn.Close();
                 }
             }
             catch (Exception ex)

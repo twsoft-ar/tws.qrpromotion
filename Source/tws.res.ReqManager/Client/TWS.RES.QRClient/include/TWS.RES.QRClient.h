@@ -34,6 +34,14 @@ void Redeem(IN  char* ip_,			IN  int   port_,	IN  char* qrCode_,		IN  char* refe
 			OUT char* responseMsg_, OUT int*  status_,	OUT int*  voucherId_,	OUT int*  transId_,		OUT char* res_);
 
 typedef void(*REDEEM)(IN  char* /*ip_*/,          IN  int   /*port_*/,   IN  char* /*qrCode_*/,    IN  char* /*reference_*/, IN  int   /*msgSize_*/,
-                      IN  int   /*amount_*/,      IN  char* /*store_*/,  IN  char* /*terminal_*/,
+                      IN  long  /*amount_*/,      IN  char* /*store_*/,  IN  char* /*terminal_*/,
 			          OUT char* /*responseMsg_*/, OUT int*  /*status_*/, OUT int*  /*voucherId_*/, OUT int*  /*transId_*/,   OUT char* /*res_*/);
+
+TWSRESQRPROMOTIONCLIENT_API_EXPORTS
+void Void(IN char* ip_,       IN int port_,    IN  char* qrCode_,      IN char* store_, 
+	      IN char* terminal_, IN int msgSize_, OUT char* responseMsg_, OUT char* res_);
+
+typedef void(*VOIDQR)(IN char* /*ip_*/,       IN int /*port_*/,    IN  char* /*qrCode_*/,      IN char* /*store_*/, 
+	                  IN char* /*terminal_*/, IN int /*msgSize_*/, OUT char* /*responseMsg_*/, OUT char* /*res_*/);
+
 #endif

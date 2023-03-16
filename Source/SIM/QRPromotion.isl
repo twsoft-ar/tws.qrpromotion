@@ -1,6 +1,6 @@
 // *************************************************************************
 //                       MICROS RES3700 QR PROMOTION                       
-//						    Current Version: 1.0.1
+//						    Current Version: 1.0.6
 // *************************************************************************
 // *************************************************************************
 //
@@ -17,6 +17,7 @@
 // History
 // =========================================================================
 //
+// 15/03/2023 - v1.0.6 * Luis Vaccaro * 
 //
 // 26/11/2022 - v1.0.1 * Luis Vaccaro * 
 //
@@ -44,7 +45,7 @@ SetSignOnLeft
 ///////////////////////// Constants ///////////////////////////
 // --------------------------------------------------------- //
 
-Var IFC_VERSION									:A16 = "QRP 1.0.1"
+Var IFC_VERSION									:A16 = "QRP 1.0.6"
                         						
 //CONSTANTS        
 Var TRUE										:N1 = 1
@@ -123,12 +124,11 @@ Var gbliQRPromoItemObjNum 						:N9		// Obj Num of the item inserted to indicate
 Var gbliItemObjNum[MAX_ITEM_ARRAY_SIZE] 		:N9
 Var gbliItemType[MAX_ITEM_ARRAY_SIZE] 			:N9
 Var gbliItemArraySize 							:N9
-//Var gblsQRCodeArray[MAX_ITEM_ARRAY_SIZE] 		:A32
-//Var gblsQRCodeArrayCount 						:N9
-//Query Response Fields
-//Var gbliItemType[MAX_ITEM_ARRAY_SIZE] 			:N1
-//Var gbliItemObjNum[MAX_ITEM_ARRAY_SIZE] 		:N9
-//Var gbliItemQty[MAX_ITEM_ARRAY_SIZE] 			:N9
+
+Var gblsQRCodeArray[MAX_ITEM_ARRAY_SIZE] 		:A32
+Var gbliQRCodeQtyArray[MAX_ITEM_ARRAY_SIZE] 	:N9
+Var gbliQRCodeArrayCount 						:N9
+
 
 Var MENU_ITEM 									:N1 = 1
 Var DISCOUNT 									:N1 = 2
@@ -164,8 +164,7 @@ Var QR_FAIL 									:N9 = -1
 // *       calls every function as they are called here.                                  *
 // ****************************************************************************************
 
-Event Init
-	
+Event Init	
 	// get client platform
 	Call setWorkstationType()
 
@@ -173,8 +172,7 @@ Event Init
 	Call setFilePaths()
 
 	// Load Custom Settings from .cfg file
-	Call LoadCustomSettings()
-		
+	Call LoadCustomSettings()	
 EndEvent
 
 Event Final_Tender	
@@ -187,9 +185,12 @@ Event Trans_Cncl
 EndEvent
 
 Event Tndr
-	//Call ClearGobalVars()
 EndEvent
-	
+
+Event Dtl_Changed
+	Call RemoveOrphanVouchers()
+EndEvent
+
 ////////////////////////////////////////////////////////////////
 //                         INQ EVENTS                         //
 ////////////////////////////////////////////////////////////////
@@ -202,7 +203,7 @@ EndEvent
 
 Event Inq : 15 //TEST
 	
-	Format PATH_TO_GEOITD_DRIVER 		As "..\bin\TWS.RES.QRClientW32.dll"		
+	Format PATH_TO_GEOITD_DRIVER As "..\bin\TWS.RES.QRClientW32.dll"		
 	Call LoadQRPromotionDrv()
 	ErrorMessage "gblhQRPromotionDrv=", gblhQRPromotionDrv
 
@@ -213,6 +214,9 @@ Event Inq : 15 //TEST
 	Var qty[100]  :N9
 	Var res       :N9
 	Var errorMsg  :A1024
+
+	DLLCall_CDecl gblhQRPromotionDrv, Test(ref plu[])
+	DLLCall_CDecl gblhQRPromotionDrv, Test2()
 
 	DLLCall_CDecl gblhQRPromotionDrv, Validate("127.0.0.1", 7511, "AXW-456-PROM4", Ref size, Ref status, Ref type[], Ref plu[], Ref qty[], 1024, Ref errorMsg, Ref res)
 	ErrorMessage "size=", size, " status=", status, " res=", res 
@@ -279,9 +283,6 @@ Sub ProcessQR()
                                                Ref itemArraySize, Ref status, 						\     
                                                Ref itemType[], 	  Ref itemObjNum[],  Ref itemQty[], \
                                                1024,              Ref errorMsg,      Ref retVal) 	
-	//debug
-	//ErrorMessage "errorMsg=", errorMsg, " status=", status	
-	//debug1
 	
 	Call FreeQRPromotionDrv()
 
@@ -299,11 +300,6 @@ Sub ProcessQR()
 		ErrorMessage "Fallo al procesar cupon"
 		Return
 	EndIf
-
-//	If(status = QR_NOT_FOUND)
-//		ErrorMessage "Cupon invalido o vencido"
-//		Return
-//	EndIf
 
 	If(status = QR_VALID)
 		If(itemArraySize > 0)
@@ -333,12 +329,108 @@ Sub ProcessQR()
 EndSub
 
 //******************************************************************
+// Procedure: AddToQrCodeArray()
+//******************************************************************
+Sub AddToQrCodeArray(Var qrCode_ :A32, Ref qrCodeArrayCount_, Ref qrCodeArray_[], Ref qrCodeQtyArray_[])
+	
+	Var index :N9
+	
+	//1 find code in array
+	For index = 1 To qrCodeArrayCount_
+		If(qrCodeArray_[index] = Trim(qrCode_))				
+			qrCodeQtyArray_[index] = qrCodeQtyArray_[index] + 1 
+		EndIf
+	EndFor
+	
+	//new item
+	If(index > qrCodeArrayCount_)
+		qrCodeArray_[index] = Trim(qrCode_)
+		qrCodeQtyArray_[index] = 1
+		qrCodeArrayCount_ = qrCodeArrayCount_ + 1
+	EndIf
+
+EndSub
+
+//******************************************************************
+// Procedure: RemoveOrphanVouchers()
+//******************************************************************
+Sub RemoveOrphanVouchers()
+
+	Var terminal 	:A32 = @WSID	
+	Var errorMsg 	:A1024
+	Var retVal 		:N1
+
+	Call LoadQRPromotionDrv()
+	
+	If(gblhQRPromotionDrv = 0)
+		Return
+	EndIf
+
+	//1. generate current vouchers array
+	Var qrCodeArray[MAX_ITEM_ARRAY_SIZE]	:A32
+	Var qrCount 							:N9
+
+	Call GetQRCodeFromItem(qrCodeArray[], qrCount)
+	
+	//Optimize a little
+	If(qrCount = 0 And gbliQRCodeArrayCount = 0)
+		Return
+	EndIf	
+
+	//2. Consolidate them in a new array
+	Var qrConsolidatedCodeArray[MAX_ITEM_ARRAY_SIZE]	:A32
+	Var qrConsolidatedQty[MAX_ITEM_ARRAY_SIZE] 			:N9
+	Var qrConsolidatedCount 							:N9
+	Var index 											:N9
+	
+	For index = 1 To qrCount
+		Call AddToQrCodeArray(qrCodeArray[index], qrConsolidatedCount, qrConsolidatedCodeArray[], qrConsolidatedQty[])	
+	EndFor
+	
+	//3. Compare current consolidated array with previuos one
+	//   by substracting new array from prev array
+	Var prevArrayIndex 		:N9
+	Var currentArrayIndex 	:N9
+	
+	For prevArrayIndex = 1 To gbliQRCodeArrayCount
+		For currentArrayIndex = 1 To qrConsolidatedCount	
+			If(gblsQRCodeArray[prevArrayIndex] = qrConsolidatedCodeArray[currentArrayIndex])
+				
+				gbliQRCodeQtyArray[prevArrayIndex] = gbliQRCodeQtyArray[prevArrayIndex] - qrConsolidatedQty[currentArrayIndex] 
+
+				//free every non zero count code from DB
+				For index = 1 To gbliQRCodeQtyArray[prevArrayIndex]
+					DLLCall_CDecl gblhQRPromotionDrv, Void(gblsServerIP,  gbliServerPort,  gblsQRCodeArray[prevArrayIndex],  gblsStoreId, \
+				                                           terminal,      1024,            Ref errorMsg,                     Ref retVal) 			
+				EndFor
+				Break
+			EndIf					
+		EndFor	
+		
+		If(currentArrayIndex = qrConsolidatedCount + 1)			
+			DLLCall_CDecl gblhQRPromotionDrv, Void(gblsServerIP,  gbliServerPort,  gblsQRCodeArray[prevArrayIndex],  gblsStoreId, \
+			                                       terminal,      1024,            Ref errorMsg,                     Ref retVal) 			
+		EndIf		
+	EndFor
+
+	Call FreeQRPromotionDrv()
+	
+	//update last consolidated QR Code Array
+	gbliQRCodeArrayCount = qrConsolidatedCount			 
+	For index = 1 To gbliQRCodeArrayCount
+		gblsQRCodeArray[index] = qrConsolidatedCodeArray[index]
+	EndFor			
+	 
+EndSub
+
+	
+//******************************************************************
 // Procedure: RedeemQR()
 //******************************************************************
 Sub RedeemQR()
 	
 	Var status 							:N9
-	Var retVal 							:N1
+	Var retVal 							:N9
 	Var qrStr 							:A32
 	Var voucherRef 						:A64
 	Var terminal 						:A16 
@@ -355,7 +447,6 @@ Sub RedeemQR()
 		
 	Call GetQRCodeFromItem(qrCodeArray[], qrCount)
 		
-	//If(@INPUTSTATUS = 0 Or Trim(qrStr) = "")
 	If(qrCount = 0)
 		//InfoMessage "Operacion cancelada"
 		Return
@@ -380,10 +471,11 @@ Sub RedeemQR()
 		
 		Format voucherRef As "QR:", (@YEAR){02}, @MONTH{02}, @DAY{02}, @HOUR{02}, @MINUTE{02}, @WSID{04}, @CKNUM{09}
 
-		//DLLCall_CDecl gblhQRPromotionDrv, Redeem(gblsServerIP, gbliServerPort, Trim(qrStr), voucherRef, 1024, Ref errorMsg, Ref status, Ref voucherId, Ref transactionId, Ref retVal) 	
 		DLLCall_CDecl gblhQRPromotionDrv, Redeem(gblsServerIP, gbliServerPort, qrCodeArray[index], voucherRef,        1024, 	   \ 
 												 amount100Int, gblsStoreId,    terminal,									       \
 					 							 Ref errorMsg, Ref status,     Ref voucherId,      Ref transactionId, Ref retVal) 	
+
+		Call FreeQRPromotionDrv()
 
 		If(retVal <> EXECUTION_OK)
 			Call ShowErrorMessage(retVal)
@@ -402,31 +494,6 @@ Sub RedeemQR()
 		EndIf
 
 	EndFor
-	//ver de guardar para sincroniar luego los cupones que no se puedan quemar porque está caido REQ Server o el WS de QR	 
-
-//	If(retVal <> EXECUTION_OK)
-//		Call ShowErrorMessage(retVal)
-//		Return
-//	EndIf
-//
-//	If(status = QR_NOT_FOUND)
-//		ErrorMessage "Cupon invalido o vencido"
-//		Return
-//	EndIf
-//
-//	If(status = QR_FAIL)
-//		ErrorMessage "Fallo al procesar cupon"
-//		Return
-//	EndIf
-//	
-//	If(status = QR_WS_ENDPOINT_ERROR)
-//		ErrorMessage "Sin Comunicacion con Servicio QR"
-//		Return
-//	EndIf
-//
-//	If(status = QR_VALID)
-//		ErrorMessage "Promocion ACEPTADA!"				
-//	EndIf
 									
 EndSub
 
@@ -639,8 +706,12 @@ Sub ClearGobalVars()
 		gbliItemObjNum[index] = 0
 		gbliItemType[index] = 0
 		gbliItemArraySize = 0
+		gblsQRCodeArray[MAX_ITEM_ARRAY_SIZE] = ""
+		gbliQRCodeQtyArray[MAX_ITEM_ARRAY_SIZE] = 0
 	EndFor
 	
+	gbliQRCodeArrayCount = 0
+
 EndSub
 
 
