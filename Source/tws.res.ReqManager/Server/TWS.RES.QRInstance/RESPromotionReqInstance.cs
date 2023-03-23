@@ -121,11 +121,44 @@ namespace TWS.RES.QR
             return retVal;
         }
 
-        private void DoSynchronizeTransactions()
+        //Redeem ReqInstance Handler
+        private ReqMessage ProcessQRRedeem(ReqMessage reqMsg_)
         {
-            new Thread(() => { SynchronizeBurnedRecords(); PurgeTable(); }).Start();
+            ReqMessage retVal = new ReqMessage(null);
+
+            try
+            {
+                string qrCode = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString();
+                TransactionDTO transactionDTO = new TransactionDTO()
+                {
+                    QRCode = $"{ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string))}".Split('|')[0],
+                    State = PromotionStatus.Burned,
+                    ExtraData1 = $"{ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string))}"
+                };
+
+                var count = SetQRStatusAndExtraData(transactionDTO);
+                
+                //override retval to return always succed operation. POS should never take care about redeem response
+                retVal.MessageType = reqMsg_.MessageType;
+                retVal.Body = ByteStream.ToPByte("0||1|0|0");
+                retVal.BodySize = retVal.Body.Length;
+                retVal.Checksum = retVal.GenerateChecksum();
+
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                DoSynchronizeTransactions();
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
         }
 
+        //Void ReqInstance Handler
         private ReqMessage ProcessVoidQR(ReqMessage reqMsg_)
         {
             ReqMessage retVal = new ReqMessage(null);
@@ -174,45 +207,7 @@ namespace TWS.RES.QR
 
             return retVal;
         }
-        //Redeem ReqInstance Handler
-        private ReqMessage ProcessQRRedeem(ReqMessage reqMsg_)
-        {
-            ReqMessage retVal = new ReqMessage(null);
 
-            try
-            {
-                string qrCode = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString();
-                TransactionDTO transactionDTO = new TransactionDTO()
-                {
-                    QRCode = $"{ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string))}".Split('|')[0],
-                    State = PromotionStatus.Burned,
-                    ExtraData1 = $"{ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string))}"
-                };
-
-                var count = SetQRStatusAndExtraData(transactionDTO);
-
-                retVal = RedeemQRFromAPI(reqMsg_, out ResponseMessage webResponse_);
-
-                if (webResponse_.status == (int)StatusCode.OK || webResponse_.status == (int)StatusCode.BURNED)
-                {
-                    transactionDTO.Processed = true;
-                    count = SetQRProcessedStatusFromDB(transactionDTO);
-                }
-
-                //Purge here in a new thread, perhaps!!!!
-            }
-            catch (Exception ex)
-            {
-                LOG.Fatal(ex, "{Message}", "Exception caught.");
-            }
-            finally
-            {
-                DoSynchronizeTransactions();
-                LOG.Trace("EXIT");
-            }
-
-            return retVal;
-        }
         //API Validation way
         private ReqMessage ValidateQRFromAPI(ReqMessage reqMsg_, out ResponseMessage webResponse_)
         {
@@ -443,7 +438,8 @@ namespace TWS.RES.QR
 
             try
             {
-                var burnedList = GetBurnedRecords();
+                SetQRLock();
+                var burnedList = GetBurnedRecords(true);
                 foreach (var voucher in burnedList)
                 {
                     try
@@ -469,12 +465,13 @@ namespace TWS.RES.QR
             }
             finally
             {
+                SetQRLock(false);
                 LOG.Trace("EXIT");
             }
 
             return retVal;
         }
-        private List<TransactionDTO> GetBurnedRecords()
+        private List<TransactionDTO> GetBurnedRecords(bool locked_ = false)
         {
             LOG.Trace("ENTER");
 
@@ -491,9 +488,11 @@ namespace TWS.RES.QR
                                              "        `ExtraData1`       AS BURN_DATA \r\n" +
                                              "FROM    `Transaction`                   \r\n" +
                                              "WHERE   `Processed` = @processed   AND  \r\n" +
+                                             "        `LockId`    = @lockId      AND  \r\n" +
                                              "        `Status`    = @status           \r\n";
 
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@processed", DbType = System.Data.DbType.Boolean, Value = false });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@lockId", DbType = System.Data.DbType.Int32, Value = locked_? Thread.CurrentThread.ManagedThreadId : 0});
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@status", DbType = System.Data.DbType.Int32, Value = (int)PromotionStatus.Burned });
 
                         sqlCmd.CommandType = System.Data.CommandType.Text;
@@ -532,20 +531,21 @@ namespace TWS.RES.QR
                     {
                         sqlCmd.CommandText = "CREATE TABLE `Transaction` " +
                                                             "(" +
-                                                                "`TerminalId`	        BIGINT   NOT NULL    DEFAULT 0," +
-                                                                "`PromType`	            INTEGER  NOT NULL    DEFAULT 0," +
-                                                                "`QRCode`	            TEXT,                          " +
-                                                                "`PromExpirationDate`   TEXT,                          " +
-                                                                "`PromQty`	            INTEGER  NOT NULL    DEFAULT 0," +
-                                                                "`Timestamp`            TEXT,                          " +
-                                                                "`ExtraData1`           TEXT,                          " +
-                                                                "`ExtraData2`           TEXT,                          " +
-                                                                "`ExtraData3`           TEXT,                          " +
-                                                                "`ExtraData4`           TEXT,                          " +
-                                                                "`Status`	            INTEGER  NOT NULL    DEFAULT 0," +
-                                                                "`Processed`	        INTEGER  NOT NULL    DEFAULT 0," +
-                                                                "PRIMARY KEY(`QRCode`)" +
-                                                            "); ";
+                                                                "`TerminalId`	        BIGINT   NOT NULL    DEFAULT 0,\r\n" +
+                                                                "`PromType`	            INTEGER  NOT NULL    DEFAULT 0,\r\n" +
+                                                                "`QRCode`	            TEXT,                          \r\n" +
+                                                                "`PromExpirationDate`   TEXT,                          \r\n" +
+                                                                "`PromQty`	            INTEGER  NOT NULL    DEFAULT 0,\r\n" +
+                                                                "`Timestamp`            TEXT,                          \r\n" +
+                                                                "`ExtraData1`           TEXT,                          \r\n" +
+                                                                "`ExtraData2`           TEXT,                          \r\n" +
+                                                                "`ExtraData3`           TEXT,                          \r\n" +
+                                                                "`ExtraData4`           TEXT,                          \r\n" +
+                                                                "`Status`	            INTEGER  NOT NULL    DEFAULT 0,\r\n" +
+                                                                "`LockId`	            BIGINT   NOT NULL    DEFAULT 0,\r\n" +
+                                                                "`Processed`	        INTEGER  NOT NULL    DEFAULT 0,\r\n" +
+                                                                "PRIMARY KEY(`QRCode`)                                 \r\n" +
+                                                            "); \n";
 
                         sqlCmd.CommandType = System.Data.CommandType.Text;
                         sqlCmd.CommandTimeout = 300;
@@ -599,6 +599,47 @@ namespace TWS.RES.QR
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@timeStamp", DbType = System.Data.DbType.DateTime, Value = trans_.Timestamp });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@state", DbType = System.Data.DbType.Int32, Value = trans_.State });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@processed", DbType = System.Data.DbType.Boolean, Value = false });
+
+                        sqlCmd.CommandType = System.Data.CommandType.Text;
+                        sqlCmd.CommandTimeout = 300;
+
+                        retVal = sqlCmd.ExecuteNonQuery(System.Data.CommandBehavior.CloseConnection);
+                    }
+                    sqlConn.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                LOG.Fatal(ex, "{Message}", "Exception caught.");
+            }
+            finally
+            {
+                LOG.Trace("EXIT");
+            }
+
+            return retVal;
+        }
+        private int SetQRLock(bool lock_ = true)
+        {
+            LOG.Trace("ENTER");
+
+            int retVal = 0;
+
+            try
+            {
+                using (SQLiteConnection sqlConn = new SQLiteConnection($"Data Source={mDBFileName}"))
+                {
+                    sqlConn.Open();
+                    using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
+                    {
+                        sqlCmd.CommandText = "UPDATE `Transaction`           \r\n" +
+                                             "SET    `LockId` = @lockIdVal   \r\n" +
+                                             "WHERE  `Status` = @status AND  \r\n" +
+                                             "       `lockId` = @lockId;     \r\n";
+
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@status", DbType = System.Data.DbType.Int32, Value = PromotionStatus.Burned });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@lockIdVal", DbType = System.Data.DbType.Int32, Value = (lock_ ? Thread.CurrentThread.ManagedThreadId : 0) });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@lockId", DbType = System.Data.DbType.Int32, Value = (lock_ ? 0 : Thread.CurrentThread.ManagedThreadId) });
 
                         sqlCmd.CommandType = System.Data.CommandType.Text;
                         sqlCmd.CommandTimeout = 300;
@@ -747,6 +788,10 @@ namespace TWS.RES.QR
             }
 
             return retVal;
+        }
+        private void DoSynchronizeTransactions()
+        {
+            new Thread(() => { SynchronizeBurnedRecords(); PurgeTable(); }).Start();
         }
     }
     internal enum PromotionType
