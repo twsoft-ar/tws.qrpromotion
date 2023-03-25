@@ -129,11 +129,13 @@ namespace TWS.RES.QR
             try
             {
                 string qrCode = ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string)).ToString();
+                var terminalSocket = ((System.Net.IPEndPoint)Socket.RemoteEndPoint).Address.Address;
                 TransactionDTO transactionDTO = new TransactionDTO()
                 {
                     QRCode = $"{ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string))}".Split('|')[0],
                     State = PromotionStatus.Burned,
-                    ExtraData1 = $"{ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string))}"
+                    ExtraData1 = $"{ByteStream.PByteToPrimitive(reqMsg_.Body, 0, typeof(string))}",
+                    TerminalId = terminalSocket
                 };
 
                 var count = SetQRStatusAndExtraData(transactionDTO);
@@ -143,7 +145,6 @@ namespace TWS.RES.QR
                 retVal.Body = ByteStream.ToPByte("0||1|0|0");
                 retVal.BodySize = retVal.Body.Length;
                 retVal.Checksum = retVal.GenerateChecksum();
-
             }
             catch (Exception ex)
             {
@@ -448,7 +449,13 @@ namespace TWS.RES.QR
 
                         if (webResponse.status == (int)StatusCode.OK || webResponse.status == (int)StatusCode.BURNED)
                         {
-                            SetQRProcessedStatusFromDB(new TransactionDTO() { QRCode = voucher.QRCode, Processed = true });
+                            SetQRProcessedStatusFromDB(new TransactionDTO() 
+                            { 
+                                QRCode = voucher.QRCode, 
+                                TerminalId = voucher.TerminalId,
+                                Timestamp = voucher.Timestamp,
+                                Processed = true,
+                            });
                         }
                     }
                     catch (Exception ex)
@@ -484,12 +491,15 @@ namespace TWS.RES.QR
                     sqlConn.Open();
                     using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
                     {
-                        sqlCmd.CommandText = "SELECT  `QRCode`           AS QR_CODE,  \r\n" +
-                                             "        `ExtraData1`       AS BURN_DATA \r\n" +
-                                             "FROM    `Transaction`                   \r\n" +
-                                             "WHERE   `Processed` = @processed   AND  \r\n" +
-                                             "        `LockId`    = @lockId      AND  \r\n" +
-                                             "        `Status`    = @status           \r\n";
+                        sqlCmd.CommandText = "SELECT  `QRCode`           AS QR_CODE,   \r\n" +
+                                             "        `PromType`         AS PROM_TYPE, \r\n" +
+                                             "        `TerminalId`       AS TERMINAL,  \r\n" +
+                                             "        `Timestamp`        AS TIMESTAMP, \r\n" +
+                                             "        `ExtraData1`       AS BURN_DATA  \r\n" +
+                                             "FROM    `Transaction`                    \r\n" +
+                                             "WHERE   `Processed` = @processed   AND   \r\n" +
+                                             "        `LockId`    = @lockId      AND   \r\n" +
+                                             "        `Status`    = @status            \r\n";
 
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@processed", DbType = System.Data.DbType.Boolean, Value = false });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@lockId", DbType = System.Data.DbType.Int32, Value = locked_? Thread.CurrentThread.ManagedThreadId : 0});
@@ -498,10 +508,20 @@ namespace TWS.RES.QR
                         sqlCmd.CommandType = System.Data.CommandType.Text;
                         sqlCmd.CommandTimeout = 300;
 
+
                         using (SQLiteDataReader dr = sqlCmd.ExecuteReader(System.Data.CommandBehavior.CloseConnection))
                         {
                             while (dr.Read())
-                                retVal.Add(new TransactionDTO() { QRCode = (string)dr["QR_CODE"], ExtraData1 = (string)dr["BURN_DATA"] });
+                            {
+                                retVal.Add(new TransactionDTO()
+                                {
+                                    QRCode = (string)dr["QR_CODE"],
+                                    ExtraData1 = (string)dr["BURN_DATA"],
+                                    Timestamp = DateTime.ParseExact((string)dr["TIMESTAMP"], "yyyy-MM-dd HH:mm:ss.fffffff", CultureInfo.InvariantCulture),
+                                    PromotionType = (PromotionType)(long)dr["PROM_TYPE"],
+                                    TerminalId = (long)dr["TERMINAL"]
+                                });
+                            }                               
                         }
                     }
                     sqlConn.Close();
@@ -543,9 +563,8 @@ namespace TWS.RES.QR
                                                                 "`ExtraData4`           TEXT,                          \r\n" +
                                                                 "`Status`	            INTEGER  NOT NULL    DEFAULT 0,\r\n" +
                                                                 "`LockId`	            BIGINT   NOT NULL    DEFAULT 0,\r\n" +
-                                                                "`Processed`	        INTEGER  NOT NULL    DEFAULT 0,\r\n" +
-                                                                "PRIMARY KEY(`QRCode`)                                 \r\n" +
-                                                            "); \n";
+                                                                "`Processed`	        INTEGER  NOT NULL    DEFAULT 0 \r\n" +
+                                                            ");                                                        \r\n";
 
                         sqlCmd.CommandType = System.Data.CommandType.Text;
                         sqlCmd.CommandTimeout = 300;
@@ -589,10 +608,12 @@ namespace TWS.RES.QR
                                              "            @timeStamp,                \r\n" +
                                              "            @state,                    \r\n" +
                                              "            @processed                 \r\n" +
-                                             "WHERE NOT EXISTS (SELECT * FROM `Transaction` WHERE `QRCode` = @qrCode); \r\n";
+                                             "WHERE NOT EXISTS (SELECT * FROM `Transaction` WHERE `QRCode`   = @qrCode AND" +
+                                             "                                                    `PromType` = @promTypePerVoucher); \r\n";
 
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@terminalId", DbType = System.Data.DbType.Int64, Value = trans_.TerminalId });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promType", DbType = System.Data.DbType.Int32, Value = trans_.PromotionType });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promTypePerVoucher", DbType = System.Data.DbType.Int32, Value = PromotionType.PerVoucher});
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = trans_.QRCode });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promExpirationDate", DbType = System.Data.DbType.DateTime, Value = trans_.ExpirationDate });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promQty", DbType = System.Data.DbType.Int32, Value = trans_.PromQty });
@@ -676,12 +697,21 @@ namespace TWS.RES.QR
                     sqlConn.Open();
                     using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
                     {
-                        sqlCmd.CommandText = "UPDATE `Transaction`               \r\n" +
-                                             "SET    `Status`     = @status,     \r\n" +
-                                             "       `ExtraData1` = @extraData1  \r\n" +
-                                             "WHERE  `QRCode` = @qrCode;         \r\n";
+                        sqlCmd.CommandText = "UPDATE `Transaction`                                     \r\n" +
+                                             "SET    `Status`     = @status,                           \r\n" +
+                                             "       `ExtraData1` = @extraData1                        \r\n" +
+                                             "WHERE  `QRCode`     = @qrCode     AND                    \r\n" +
+                                             "       `Status`    <> @status     AND                    \r\n" +
+                                             "       `TerminalId` = @terminal   AND                    \r\n" +
+                                             "       `Timestamp`  = (SELECT MIN(Timestamp)             \r\n" +
+                                             "                      FROM  `Transaction`                \r\n" +
+                                             "                      WHERE `QRCode`     = @qrCode   AND \r\n" +
+                                             "                            `TerminalId` = @terminal AND \r\n" +
+                                             "                            `Status`    <> @status)      \r\n" +
+                                             "; \r\n";
 
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = trans_.QRCode });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@terminal", DbType = System.Data.DbType.Int64, Value = trans_.TerminalId });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@status", DbType = System.Data.DbType.Int32, Value = trans_.State });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@extraData1", DbType = System.Data.DbType.String, Value = trans_.ExtraData1 });
 
@@ -720,10 +750,16 @@ namespace TWS.RES.QR
                     sqlConn.Open();
                     using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
                     {
-                        sqlCmd.CommandText = "DELETE                            \r\n" +
-                                             "FROM   `Transaction`              \r\n" +
-                                             "WHERE  `QRCode`     = @qrCode AND \r\n" +
-                                             "       `TerminalId` = @terminal;  \r\n";
+                        //delete only the oldest QRCODE (this way for PerPromotion codes)
+                        sqlCmd.CommandText = "DELETE                                                   \r\n" +
+                                             "FROM   `Transaction`                                     \r\n" +
+                                             "WHERE  `QRCode`     = @qrCode   AND                      \r\n" +
+                                             "       `TerminalId` = @terminal AND                      \r\n" +
+                                             "       `Timestamp`  = (SELECT MIN(Timestamp)             \r\n" +
+                                             "                      FROM  `Transaction`                \r\n" +
+                                             "                      WHERE `QRCode`     = @qrCode   AND \r\n" +
+                                             "                            `TerminalId` = @terminal)    \r\n" +
+                                             "; \r\n";
 
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = trans_.QRCode });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@terminal", DbType = System.Data.DbType.Int64, Value = trans_.TerminalId });
@@ -763,12 +799,16 @@ namespace TWS.RES.QR
                     sqlConn.Open();
                     using (SQLiteCommand sqlCmd = new SQLiteCommand(sqlConn))
                     {
-                        sqlCmd.CommandText = "UPDATE `Transaction`            \r\n" +
-                                             "SET    `Processed`  = @state    \r\n" +
-                                             "WHERE  `QRCode`     = @qrCode;  \r\n";
+                        sqlCmd.CommandText = "UPDATE `Transaction`                 \r\n" +
+                                             "SET    `Processed`  = @state         \r\n" +
+                                             "WHERE  `QRCode`     = @qrCode   AND  \r\n" +
+                                             "       `TerminalId` = @terminal AND  \r\n" +
+                                             "       `Timestamp`  = @timestamp;    \r\n";
 
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = trans_.QRCode });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@state", DbType = System.Data.DbType.Boolean, Value = trans_.Processed });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@terminal", DbType = System.Data.DbType.Int64, Value = trans_.TerminalId });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@timestamp", DbType = System.Data.DbType.DateTime, Value = trans_.Timestamp });
 
                         sqlCmd.CommandType = System.Data.CommandType.Text;
                         sqlCmd.CommandTimeout = 300;
