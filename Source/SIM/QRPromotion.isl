@@ -1,6 +1,6 @@
 // *************************************************************************
 //                       MICROS RES3700 QR PROMOTION                       
-//						    Current Version: 1.0.6
+//						    Current Version: 1.0.8
 // *************************************************************************
 // *************************************************************************
 //
@@ -16,6 +16,10 @@
 // =========================================================================
 // History
 // =========================================================================
+//
+// 04/04/2023 - v1.0.8 * Luis Vaccaro * 
+//
+// 31/03/2023 - v1.0.7 * Luis Vaccaro * 
 //
 // 15/03/2023 - v1.0.6 * Luis Vaccaro * 
 //
@@ -45,7 +49,7 @@ SetSignOnLeft
 ///////////////////////// Constants ///////////////////////////
 // --------------------------------------------------------- //
 
-Var IFC_VERSION									:A16 = "QRP 1.0.6"
+Var IFC_VERSION									:A16 = "QRP 1.0.8"
                         						
 //CONSTANTS        
 Var TRUE										:N1 = 1
@@ -121,9 +125,10 @@ Var gblsStoreId 								:A64 	// Store Identifier
 Var gblsServerIP 								:A16 	// Micros ReqServer IP (micros res server ip)
 Var gbliServerPort 								:N9 	// Micros ReqServer PORT
 Var gbliQRPromoItemObjNum 						:N9		// Obj Num of the item inserted to indicate a promo is in progress
-Var gbliItemObjNum[MAX_ITEM_ARRAY_SIZE] 		:N9
-Var gbliItemType[MAX_ITEM_ARRAY_SIZE] 			:N9
-Var gbliItemArraySize 							:N9
+Var gbliQRPromoEndItemObjNum 					:N9		// Obj Num of the last item inserted to indicate a promo is end
+//Var gbliItemObjNum[MAX_ITEM_ARRAY_SIZE] 		:N9
+//Var gbliItemType[MAX_ITEM_ARRAY_SIZE] 			:N9
+//Var gbliItemArraySize 							:N9
 
 Var gblsQRCodeArray[MAX_ITEM_ARRAY_SIZE] 		:A32
 Var gbliQRCodeQtyArray[MAX_ITEM_ARRAY_SIZE] 	:N9
@@ -164,7 +169,8 @@ Var QR_FAIL 									:N9 = -1
 // *       calls every function as they are called here.                                  *
 // ****************************************************************************************
 
-Event Init	
+Event Init
+	
 	// get client platform
 	Call setWorkstationType()
 
@@ -172,7 +178,12 @@ Event Init
 	Call setFilePaths()
 
 	// Load Custom Settings from .cfg file
-	Call LoadCustomSettings()	
+	Call LoadCustomSettings()
+
+	Call RemoveOrphanVouchers(TRUE)
+
+	InfoMessage "QR PROMO INTERFACE",IFC_VERSION
+	
 EndEvent
 
 Event Final_Tender	
@@ -181,6 +192,7 @@ Event Final_Tender
 EndEvent
 
 Event Trans_Cncl		
+	Call RemoveOrphanVouchers(TRUE)
 	Call ClearGobalVars()
 EndEvent
 
@@ -188,7 +200,7 @@ Event Tndr
 EndEvent
 
 Event Dtl_Changed
-	Call RemoveOrphanVouchers()
+	Call RemoveOrphanVouchers(FALSE)
 EndEvent
 
 ////////////////////////////////////////////////////////////////
@@ -203,7 +215,7 @@ EndEvent
 
 Event Inq : 15 //TEST
 	
-	Format PATH_TO_GEOITD_DRIVER As "..\bin\TWS.RES.QRClientW32.dll"		
+	Format PATH_TO_GEOITD_DRIVER 		As "..\bin\TWS.RES.QRClientW32.dll"		
 	Call LoadQRPromotionDrv()
 	ErrorMessage "gblhQRPromotionDrv=", gblhQRPromotionDrv
 
@@ -302,13 +314,15 @@ Sub ProcessQR()
 	EndIf
 
 	If(status = QR_VALID)
+		
+		//init promotion mark
 		If(itemArraySize > 0)
 			LoadKybdMacro Key(KEY_TYPE_MENU_ITEM_OBJNUM, gbliQRPromoItemObjNum), MakeKeys(qrStr), @KEY_ENTER
 		EndIf
 		
 		Var index :N9	
 		For index = 1 To itemArraySize
-			
+
 			If(itemType[index] = MENU_ITEM)
 				LoadKybdMacro MakeKeys(itemQty[index]), Key(KEY_TYPE_MENU_ITEM_OBJNUM, itemObjNum[index]), @KEY_ENTER
 			EndIf
@@ -317,11 +331,16 @@ Sub ProcessQR()
 				LoadKybdMacro Key(KEY_TYPE_DISCOUNT_OBJNUM, itemObjNum[index]), @KEY_ENTER		
 			EndIf
 			
-			gbliItemObjNum[index] = itemObjNum[index]
-			gbliItemType[index] = itemType[index]
-			gbliItemArraySize = itemArraySize
+			//gbliItemObjNum[gbliItemArraySize + index] = itemObjNum[index]
+			//gbliItemType[gbliItemArraySize + index] = itemType[index]
+			//gbliItemArraySize = gbliItemArraySize + itemArraySize
 			
 		EndFor
+		
+		//end promotion mark
+		If(itemArraySize > 0)
+			LoadKybdMacro Key(KEY_TYPE_MENU_ITEM_OBJNUM, gbliQRPromoEndItemObjNum), @KEY_ENTER
+		EndIf
 	Else
 		ErrorMessage errorMsg
 	EndIf
@@ -354,7 +373,7 @@ EndSub
 //******************************************************************
 // Procedure: RemoveOrphanVouchers()
 //******************************************************************
-Sub RemoveOrphanVouchers()
+Sub RemoveOrphanVouchers(Var cleanAll_ : N1)
 
 	Var terminal 	:A32 = @WSID	
 	Var errorMsg 	:A1024
@@ -370,7 +389,10 @@ Sub RemoveOrphanVouchers()
 	Var qrCodeArray[MAX_ITEM_ARRAY_SIZE]	:A32
 	Var qrCount 							:N9
 
-	Call GetQRCodeFromItem(qrCodeArray[], qrCount)
+	qrCount =  0
+	If(Not cleanAll_)
+		Call GetQRCodeFromItem(qrCodeArray[], qrCount)
+	EndIf
 	
 	//Optimize a little
 	If(qrCount = 0 And gbliQRCodeArrayCount = 0)
@@ -475,8 +497,6 @@ Sub RedeemQR()
 												 amount100Int, gblsStoreId,    terminal,									       \
 					 							 Ref errorMsg, Ref status,     Ref voucherId,      Ref transactionId, Ref retVal) 	
 
-		Call FreeQRPromotionDrv()
-
 		If(retVal <> EXECUTION_OK)
 			Call ShowErrorMessage(retVal)
 		EndIf
@@ -494,6 +514,8 @@ Sub RedeemQR()
 		EndIf
 
 	EndFor
+
+	Call FreeQRPromotionDrv()
 									
 EndSub
 
@@ -580,13 +602,14 @@ Sub GetPromotionAmount(Var promotion_ :A32, Ref amount_)
 
 	    	If (@DTL_TYPE[index] = DT_MENU_ITEM)
 
-				//Found next Promotion, so exit
+				//Found end Promotion, so exit
     			If (@DTL_OBJECT[index] = gbliQRPromoItemObjNum)
 					Return
 				EndIf
 	        	
 	        	//Search for Menu Item
-	        	Call BelongToPromotion(@DTL_OBJECT[index], MENU_ITEM, isPromotion)
+	        	//Call BelongToPromotion(@DTL_OBJECT[index], MENU_ITEM, isPromotion)
+				Call BelongToPromotion(index, isPromotion)
 				
 				If(isPromotion)
 					amount_ = amount_ + Abs(@DTL_TTL[index])
@@ -595,7 +618,8 @@ Sub GetPromotionAmount(Var promotion_ :A32, Ref amount_)
 			ElseIf (@DTL_TYPE[index] = DT_DISCOUNT)
 
 	        	//Search for Discout
-	        	Call BelongToPromotion(@DTL_OBJECT[index], DISCOUNT, isPromotion)
+	        	//Call BelongToPromotion(@DTL_OBJECT[index], DISCOUNT, isPromotion)
+	        	Call BelongToPromotion(index, isPromotion)
 				
 				If(isPromotion)
 					amount_ = amount_ - Abs(@DTL_TTL[index])
@@ -613,21 +637,44 @@ EndSub
 // Procedure: 	BelongToPromotion()
 // Author: 		Luis Vaccaro
 //******************************************************************
-Sub BelongToPromotion(Var objNum_ :N9, Ref itemType_, Ref isPresent_)
+//Sub BelongToPromotion(Var objNum_ :N9, Ref itemType_, Ref isPresent_)
+Sub BelongToPromotion(Var index_ :N9, Ref isPresent_)
 		
 	Var index 	:N9
 
 	isPresent_ = FALSE
 
-	For index = 1 To gbliItemArraySize
-		
-		If(gbliItemObjNum[index] = objNum_ And gbliItemType[index] = itemType_)
-			isPresent_ = TRUE
-			Return
+	//search for an ending promotion item
+	For index = index_ To @NUMDTLT
+
+    	If (@DTL_TYPE[index] = DT_MENU_ITEM And Not @DTL_IS_VOID[index])
+        	
+        	If(@DTL_OBJECT[index] = gbliQRPromoItemObjNum)
+        		Return
+        	ElseIf(@DTL_OBJECT[index] = gbliQRPromoEndItemObjNum)
+				isPresent_ = TRUE
+        		Return
+        	EndIf        		        	
 		EndIf		
+
 	EndFor
 	
 EndSub
+//Sub BelongToPromotion(Var objNum_ :N9, Ref itemType_, Ref isPresent_)
+//		
+//	Var index 	:N9
+//
+//	isPresent_ = FALSE
+//
+//	For index = 1 To gbliItemArraySize
+//		
+//		If(gbliItemObjNum[index] = objNum_ And gbliItemType[index] = itemType_)
+//			isPresent_ = TRUE
+//			Return
+//		EndIf		
+//	EndFor
+//	
+//EndSub
 
 //******************************************************************
 // Procedure: 	IsQRPresent()
@@ -703,9 +750,9 @@ Sub ClearGobalVars()
 	Var index :N9
 	
 	For index = 1 To MAX_ITEM_ARRAY_SIZE
-		gbliItemObjNum[index] = 0
-		gbliItemType[index] = 0
-		gbliItemArraySize = 0
+		//gbliItemObjNum[index] = 0
+		//gbliItemType[index] = 0
+		//gbliItemArraySize = 0
 		gblsQRCodeArray[MAX_ITEM_ARRAY_SIZE] = ""
 		gbliQRCodeQtyArray[MAX_ITEM_ARRAY_SIZE] = 0
 	EndFor
@@ -879,6 +926,21 @@ Sub SetCustomSetting(Ref sInfo_, Ref fn_, Var sFileName_ : A100 )
 		If Trim(sTmp) <> ""			
 			// Turn on or off Unit price flag
 			gbliQRPromoItemObjNum = sTmp
+			
+		Else
+			Call logInfo(ERROR_LOG_FILE_NAME,"QR_PROMO_ITEM_OBJ_NUM not specified",TRUE,TRUE)
+			ErrorMessage "QR_PROMO_ITEM_OBJ_NUM not specified in ", sFileName_
+		EndIf
+		
+	ElseIf	sTmp = "QR_PROMO_END_ITEM_OBJ_NUM"
+
+		// get value (should always be found below the key)
+		FReadLn fn_, sTmp
+		
+		// check its validity
+		If Trim(sTmp) <> ""			
+			// Turn on or off Unit price flag
+			gbliQRPromoEndItemObjNum = sTmp
 			
 		Else
 			Call logInfo(ERROR_LOG_FILE_NAME,"QR_PROMO_ITEM_OBJ_NUM not specified",TRUE,TRUE)

@@ -517,7 +517,7 @@ namespace TWS.RES.QR
                                 {
                                     QRCode = (string)dr["QR_CODE"],
                                     ExtraData1 = (string)dr["BURN_DATA"],
-                                    Timestamp = DateTime.ParseExact((string)dr["TIMESTAMP"], "yyyy-MM-dd HH:mm:ss.fffffff", CultureInfo.InvariantCulture),
+                                    Timestamp = DateTime.ParseExact((string)dr["TIMESTAMP"], "yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture),
                                     PromotionType = (PromotionType)(long)dr["PROM_TYPE"],
                                     TerminalId = (long)dr["TERMINAL"]
                                 });
@@ -617,7 +617,7 @@ namespace TWS.RES.QR
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = trans_.QRCode });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promExpirationDate", DbType = System.Data.DbType.DateTime, Value = trans_.ExpirationDate });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@promQty", DbType = System.Data.DbType.Int32, Value = trans_.PromQty });
-                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@timeStamp", DbType = System.Data.DbType.DateTime, Value = trans_.Timestamp });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@timeStamp", DbType = System.Data.DbType.String, Value = trans_.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@state", DbType = System.Data.DbType.Int32, Value = trans_.State });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@processed", DbType = System.Data.DbType.Boolean, Value = false });
 
@@ -808,7 +808,7 @@ namespace TWS.RES.QR
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@qrCode", DbType = System.Data.DbType.String, Value = trans_.QRCode });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@state", DbType = System.Data.DbType.Boolean, Value = trans_.Processed });
                         sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@terminal", DbType = System.Data.DbType.Int64, Value = trans_.TerminalId });
-                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@timestamp", DbType = System.Data.DbType.DateTime, Value = trans_.Timestamp });
+                        sqlCmd.Parameters.Add(new SQLiteParameter() { ParameterName = "@timestamp", DbType = System.Data.DbType.String, Value = trans_.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff") });
 
                         sqlCmd.CommandType = System.Data.CommandType.Text;
                         sqlCmd.CommandTimeout = 300;
