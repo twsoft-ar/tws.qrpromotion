@@ -2,10 +2,7 @@
 using RestSharp;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.ServiceModel;
-using System.Text;
-using System.Threading.Tasks;
 using TWS.QR.VoucherWebClient.Properties;
 
 namespace TWS.QR.PromotionClient
@@ -22,7 +19,7 @@ namespace TWS.QR.PromotionClient
 
             try
             {
-                retVal = CallFiservAPI<ResponseMessage>(new RequestMessage() { VoucherCode = qrcode_ }, Settings.Default.QR_VALIDATE_RESOURCE);
+                retVal = CallQRPromotionAPI<ResponseMessage>(new RequestMessage() { VoucherCode = qrcode_ }, Settings.Default.QR_VALIDATE_RESOURCE);
             }
             catch (EndpointNotFoundException ex)
             {
@@ -61,7 +58,7 @@ namespace TWS.QR.PromotionClient
                     Terminal = terminal_
                 };
 
-                retVal = CallFiservAPI<ResponseMessage>(request, Settings.Default.QR_REDEEM_RESOURCE);
+                retVal = CallQRPromotionAPI<ResponseMessage>(request, Settings.Default.QR_REDEEM_RESOURCE);
             }
             catch (Exception ex)
             {
@@ -76,7 +73,7 @@ namespace TWS.QR.PromotionClient
             return retVal;
         }
 
-        public T CallFiservAPI<T>(object body_, string resource_) where T : ResponseMessage, new()
+        public T CallQRPromotionAPI<T>(object body_, string resource_) where T : ResponseMessage, new()
         {
             T retVal = default(T);
 
