@@ -9,9 +9,14 @@ namespace TWS.QR.PromotionClient
 {
     public class QRVoucherWebClient
     {
-        private static readonly NLog.Logger LOG = NLog.LogManager.GetCurrentClassLogger();
+        private static readonly NLog.Logger LOG = tws.QRPromotion.Logger.LogFactory.GetCurrentClassLogger();            
 
         public ResponseMessage ValidateVoucher(string qrcode_)
+        {
+            return ValidateVoucher(qrcode_, Settings.Default.QR_PROMOTION_URL);
+        }
+
+        public ResponseMessage ValidateVoucher(string qrcode_, string url_)
         {
             ResponseMessage retVal = new ResponseMessage();
 
@@ -19,7 +24,7 @@ namespace TWS.QR.PromotionClient
 
             try
             {
-                retVal = CallQRPromotionAPI<ResponseMessage>(new RequestMessage() { VoucherCode = qrcode_ }, Settings.Default.QR_VALIDATE_RESOURCE);
+                retVal = CallQRPromotionAPI<ResponseMessage>(new RequestMessage() { VoucherCode = qrcode_ }, url_, "/ValidateVoucher");
             }
             catch (EndpointNotFoundException ex)
             {
@@ -43,6 +48,11 @@ namespace TWS.QR.PromotionClient
 
         public ResponseMessage RedeemVoucher(string qrcode_, string reference_, decimal? amount_ = null, string store_ = null, string terminal_ = null)
         {
+            return RedeemVoucher(qrcode_, reference_, Settings.Default.QR_PROMOTION_URL, amount_, store_, terminal_);
+        }
+
+        public ResponseMessage RedeemVoucher(string qrcode_, string reference_, string url_, decimal? amount_ = null, string store_ = null, string terminal_ = null)
+        {
             ResponseMessage retVal = new ResponseMessage();
 
             LOG.Trace("ENTER");
@@ -58,7 +68,7 @@ namespace TWS.QR.PromotionClient
                     Terminal = terminal_
                 };
 
-                retVal = CallQRPromotionAPI<ResponseMessage>(request, Settings.Default.QR_REDEEM_RESOURCE);
+                retVal = CallQRPromotionAPI<ResponseMessage>(request, url_, "/RedeemVoucher");
             }
             catch (Exception ex)
             {
@@ -73,7 +83,7 @@ namespace TWS.QR.PromotionClient
             return retVal;
         }
 
-        public T CallQRPromotionAPI<T>(object body_, string resource_) where T : ResponseMessage, new()
+        public T CallQRPromotionAPI<T>(object body_, string url_, string resource_) where T : ResponseMessage, new()
         {
             T retVal = default(T);
 
@@ -99,7 +109,7 @@ namespace TWS.QR.PromotionClient
                 LOG.Info("{Message}", $"API REQUEST = {body}");
 
                 //get JSON response
-                var jsonResponse = HttpCall(Method.POST, Settings.Default.QR_PROMOTION_URL, resource_, headers, null, body, out string errMsg);
+                var jsonResponse = HttpCall(Method.POST, url_, resource_, headers, null, body, out string errMsg);
 
                 LOG.Info("{Message}", $"API RESPONSE = {jsonResponse}");
 
@@ -154,7 +164,7 @@ namespace TWS.QR.PromotionClient
                 var restResponse = restClient.Execute(request);
 
                 //get JSON response
-                errorMsg_ = restResponse.ErrorMessage ?? "";
+                errorMsg_ = restResponse.StatusCode != System.Net.HttpStatusCode.OK ? $"[{(int)restResponse.StatusCode}] {restResponse.ErrorMessage ?? ""}" : "";
                 retVal = restResponse.Content;
             }
             catch (Exception ex)
@@ -274,5 +284,4 @@ namespace TWS.QR.PromotionClient
         OK = 1,
         */
     }
-
 }
